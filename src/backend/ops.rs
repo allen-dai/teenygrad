@@ -1,9 +1,4 @@
-use super::Backend;
-use crate::{
-    prelude::Tensor,
-    tensor::{dtype::Dtype, shape::Shape},
-};
-use num_traits::FromPrimitive;
+use crate::prelude::*;
 use std::marker::PhantomData;
 
 pub trait Function<B: Backend> {

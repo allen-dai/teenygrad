@@ -20,6 +20,8 @@ pub mod prelude {
     pub use crate::backend::cpu::Cpu;
     pub use crate::tensor::Tensor;
     pub use rand_distr::Standard;
+    pub use num_traits::{FromPrimitive, ToPrimitive, Zero, One};
+    pub use crate::backend::Backend;
 }
 
 use prelude::*;

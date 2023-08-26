@@ -36,11 +36,11 @@ pub trait Backend: 'static + core::fmt::Debug + Clone + Send + Sync {
     fn max(&self) -> Self;
 
     // movement
-    fn permute<S: Into<Shape>>(&mut self, permute: S) -> Self;
-    fn reshape<S: Into<Shape>>(&mut self, shape: S) -> Self;
-    fn expand<S: Into<Shape>>(&mut self, shape: S) -> Self;
-    fn shrink<S: Into<Shape>>(&mut self, shape: S) -> Self;
-    fn pad<S: Into<Shape>>(&mut self, arg: S) -> Self;
+    fn permute<S: Into<Shape>>(&self, permute: S) -> Self;
+    fn reshape<S: Into<Shape>>(&self, shape: S) -> Self;
+    fn expand<S: Into<Shape>>(&self, shape: S) -> Self;
+    fn shrink<A: Into<Vec<(usize, usize)>>>(&self, arg: A) -> Self;
+    fn pad<A: Into<Vec<(usize, usize)>>>(&self, arg: A, const_value: Self::Dtype) -> Self;
 
     fn shape(&self) -> Shape;
     fn stride(&self) -> Shape;
@@ -48,8 +48,9 @@ pub trait Backend: 'static + core::fmt::Debug + Clone + Send + Sync {
     fn contiguous(&self) -> Self;
     // fn slice(buffer: &Self, s: usize, e: usize) -> &[Self::Dtype];
     // fn at(buffer: &Self, idx: usize) -> Self::Dtype;
-    //fn as_ptr(&self) -> *const Self::Dtype;
-    fn raw_ptr(&self) -> *const Self::Buffer;
+    // fn as_ptr(&self) -> *const Self::Dtype;
+    // fn raw_ptr(&self) -> *const Self::Buffer;
+    // fn set_stride<S: Into<Shape>>(&mut self, shape: S);
 
     fn col_i(&self, mut idx: usize) -> usize {
         let mut out = 0;
