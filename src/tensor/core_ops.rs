@@ -18,8 +18,9 @@ impl<B: Backend> core::ops::Add for Tensor<B> {
     type Output = Tensor<B>;
 
     fn add(self, rhs: Self) -> Self::Output {
+        let (a, b) = Tensor::_broadcast(&self, &rhs);
         Tensor {
-            inner: B::add(&self.inner, &rhs.inner),
+            inner: B::add(&a.inner, &b.inner),
             grad: None,
         }
     }
@@ -29,8 +30,9 @@ impl<B: Backend> core::ops::Add for &Tensor<B> {
     type Output = Tensor<B>;
 
     fn add(self, rhs: Self) -> Self::Output {
+        let (a, b) = Tensor::_broadcast(&self, &rhs);
         Tensor {
-            inner: B::add(&self.inner, &rhs.inner),
+            inner: B::add(&a.inner, &b.inner),
             grad: None,
         }
     }
@@ -43,19 +45,23 @@ where
     type Output = Tensor<B>;
 
     fn add(self, rhs: F) -> Self::Output {
+        let rhs = Tensor::from_vec([rhs], Shape::from([1]));
+        let (a, b) = Tensor::_broadcast(&self, &rhs);
         Tensor {
-            inner: B::add(&self.inner, &Tensor::from_vec([rhs], Shape::from([1])).inner),
+            inner: B::add(&a.inner, &b.inner),
             grad: None,
         }
     }
 }
 
+
 impl<B: Backend> core::ops::Sub for Tensor<B> {
     type Output = Tensor<B>;
 
     fn sub(self, rhs: Self) -> Self::Output {
+        let (a, b) = Tensor::_broadcast(&self, &rhs);
         Tensor {
-            inner: B::sub(&self.inner, &rhs.inner),
+            inner: B::sub(&a.inner, &b.inner),
             grad: None,
         }
     }
@@ -65,8 +71,9 @@ impl<B: Backend> core::ops::Sub for &Tensor<B> {
     type Output = Tensor<B>;
 
     fn sub(self, rhs: Self) -> Self::Output {
+        let (a, b) = Tensor::_broadcast(&self, &rhs);
         Tensor {
-            inner: B::sub(&self.inner, &rhs.inner),
+            inner: B::sub(&a.inner, &b.inner),
             grad: None,
         }
     }
@@ -79,19 +86,23 @@ where
     type Output = Tensor<B>;
 
     fn sub(self, rhs: F) -> Self::Output {
+        let rhs = Tensor::from_vec([rhs], Shape::from([1]));
+        let (a, b) = Tensor::_broadcast(&self, &rhs);
         Tensor {
-            inner: B::sub(&self.inner, &Tensor::from_vec([rhs], Shape::from([1])).inner),
+            inner: B::sub(&a.inner, &b.inner),
             grad: None,
         }
     }
 }
 
+
 impl<B: Backend> core::ops::Mul for Tensor<B> {
     type Output = Tensor<B>;
 
     fn mul(self, rhs: Self) -> Self::Output {
+        let (a, b) = Tensor::_broadcast(&self, &rhs);
         Tensor {
-            inner: B::mul(&self.inner, &rhs.inner),
+            inner: B::mul(&a.inner, &b.inner),
             grad: None,
         }
     }
@@ -101,8 +112,9 @@ impl<B: Backend> core::ops::Mul for &Tensor<B> {
     type Output = Tensor<B>;
 
     fn mul(self, rhs: Self) -> Self::Output {
+        let (a, b) = Tensor::_broadcast(&self, &rhs);
         Tensor {
-            inner: B::mul(&self.inner, &rhs.inner),
+            inner: B::mul(&a.inner, &b.inner),
             grad: None,
         }
     }
@@ -115,31 +127,35 @@ where
     type Output = Tensor<B>;
 
     fn mul(self, rhs: F) -> Self::Output {
+        let rhs = Tensor::from_vec([rhs], Shape::from([1]));
+        let (a, b) = Tensor::_broadcast(&self, &rhs);
         Tensor {
-            inner: B::mul(&self.inner, &Tensor::from_vec([rhs], Shape::from([1])).inner),
+            inner: B::mul(&a.inner, &b.inner),
             grad: None,
         }
     }
 }
+
 
 impl<B: Backend> core::ops::Div for Tensor<B> {
     type Output = Tensor<B>;
 
     fn div(self, rhs: Self) -> Self::Output {
+        let (a, b) = Tensor::_broadcast(&self, &rhs);
         Tensor {
-            inner: B::div(&self.inner, &rhs.inner),
+            inner: B::div(&a.inner, &b.inner),
             grad: None,
         }
     }
 }
 
-
 impl<B: Backend> core::ops::Div for &Tensor<B> {
     type Output = Tensor<B>;
 
     fn div(self, rhs: Self) -> Self::Output {
+        let (a, b) = Tensor::_broadcast(&self, &rhs);
         Tensor {
-            inner: B::div(&self.inner, &rhs.inner),
+            inner: B::div(&a.inner, &b.inner),
             grad: None,
         }
     }
@@ -152,8 +168,10 @@ where
     type Output = Tensor<B>;
 
     fn div(self, rhs: F) -> Self::Output {
+        let rhs = Tensor::from_vec([rhs], Shape::from([1]));
+        let (a, b) = Tensor::_broadcast(&self, &rhs);
         Tensor {
-            inner: B::mul(&self.inner, &Tensor::from_vec([rhs], Shape::from([1])).inner),
+            inner: B::div(&a.inner, &b.inner),
             grad: None,
         }
     }

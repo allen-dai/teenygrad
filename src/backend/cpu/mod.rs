@@ -29,7 +29,7 @@ impl<T: Dtype> core::fmt::Debug for Cpu<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for i in 0..self.shape.numel() {
             //write!(f, "{:<12?}", self_idx);
-            write!(f, "{:>8?}", self.buffer.0[self.row_i(i)]);
+            write!(f, "{:<12?}", self.buffer.0[self.row_i(i)]);
             if (i + 1) % self.shape[self.shape.len() - 1] == 0 {
                 write!(f, "\n");
             }
@@ -113,6 +113,7 @@ impl<T: Dtype> Backend for Cpu<T> {
     }
 
     fn add(&self, rhs: &Self) -> Self {
+        assert!(self.shape.numel() == rhs.shape.numel(), "Did you forgot to broadcast shape?");
         Cpu {
             buffer: Arc::new(CpuBuffer(
                 (0..self.shape.numel())
@@ -125,6 +126,7 @@ impl<T: Dtype> Backend for Cpu<T> {
     }
 
     fn sub(&self, rhs: &Self) -> Self {
+        assert!(self.shape.numel() == rhs.shape.numel(), "Did you forgot to broadcast shape?");
         Cpu {
             buffer: Arc::new(CpuBuffer(
                 (0..self.shape.numel())
@@ -137,6 +139,7 @@ impl<T: Dtype> Backend for Cpu<T> {
     }
 
     fn mul(&self, rhs: &Self) -> Self {
+        assert!(self.shape.numel() == rhs.shape.numel(), "Did you forgot to broadcast shape?");
         Cpu {
             buffer: Arc::new(CpuBuffer(
                 (0..self.shape.numel())
@@ -149,6 +152,7 @@ impl<T: Dtype> Backend for Cpu<T> {
     }
 
     fn div(&self, rhs: &Self) -> Self {
+        assert!(self.shape.numel() == rhs.shape.numel(), "Did you forgot to broadcast shape?");
         Cpu {
             buffer: Arc::new(CpuBuffer(
                 (0..self.shape.numel())
@@ -161,6 +165,7 @@ impl<T: Dtype> Backend for Cpu<T> {
     }
 
     fn bmax(&self, rhs: &Self) -> Self {
+        assert!(self.shape.numel() == rhs.shape.numel(), "Did you forgot to broadcast shape?");
         Cpu {
             buffer: Arc::new(CpuBuffer(
                 (0..self.shape.numel())
@@ -179,6 +184,7 @@ impl<T: Dtype> Backend for Cpu<T> {
     }
 
     fn cmplt(&self, rhs: &Self) -> Self {
+        assert!(self.shape.numel() == rhs.shape.numel(), "Did you forgot to broadcast shape?");
         Cpu {
             buffer: Arc::new(CpuBuffer(
                 (0..self.shape.numel())

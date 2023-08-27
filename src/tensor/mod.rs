@@ -6,6 +6,7 @@ use crate::backend::Backend;
 use crate::prelude::*;
 use rand_distr::StandardNormal;
 
+#[derive(Clone)]
 pub struct Tensor<B: Backend> {
     pub(crate) inner: B,
     pub(crate) grad: Option<Vec<Tensor<B>>>,
@@ -136,13 +137,15 @@ impl<B: Backend> Tensor<B> {
         let mut order = (0..b_shape.len()).collect::<Vec<usize>>();
         order.swap(b_shape.len() - 1, b_shape.len() - 2.min(n2));
         let mut b = rhs.reshape(b_shape).permute(order);
-        let (a, b) = Self::_broadcast(a, b);
+        let (a, b) = Self::_broadcast(&a, &b);
         (a * b).sum(-1)
     }
 
-    pub fn _broadcast(mut x: Self, mut y: Self) -> (Self, Self) {
+    pub fn _broadcast(x: &Self, y: &Self) -> (Self, Self) {
         let mut xshape = x.shape();
         let mut yshape = y.shape();
+        let mut x = x.clone();
+        let mut y = y.clone();
         if xshape == yshape {
             return (x, y);
         }
@@ -356,6 +359,14 @@ impl<B: Backend> Tensor<B> {
             panic!()
         };
         let HW = weigth.shape().dims[2..].to_vec();
+        assert!(
+            groups * cin == cin_ && self.shape().len() == weigth.shape().len(),
+            "Input Tensor shape {} does not match the shape of the weights {}. ({} vs. {})",
+            self.shape(),
+            weigth.shape(),
+            groups * cin,
+            cin_
+        );
         let mut padding_ = vec![padding; 2 * HW.len()];
         let mut x =
             self.pad2d(padding_, B::Dtype::zero())
@@ -524,7 +535,8 @@ fn pool() {
             58., 59., 66., 67., 68., 75., 76., 77., 58., 59., 60., 67., 68., 69., 76., 77., 78.,
             59., 60., 61., 68., 69., 70., 77., 78., 79., 60., 61., 62., 69., 70., 71., 78., 79.,
             80., 61., 62., 63., 70., 71., 72., 79., 80., 81.
-        ] == y.to_vec(), "{y:?}"
+        ] == y.to_vec(),
+        "{y:?}"
     );
 }
 
@@ -536,13 +548,13 @@ fn conv2d() {
             .collect::<Vec<f32>>(),
         [1, 1, 9, 9],
     );
-    let mut b = Tensor::<Cpu>::from_vec(
+    let mut k = Tensor::<Cpu>::from_vec(
         (1..=3 * 3)
             .map(|e| f32::from_usize(e).unwrap())
             .collect::<Vec<f32>>(),
         [1, 1, 3, 3],
     );
-    let r = a.conv2d(&b, None, 1, 1, 1, 0);
+    let r = a.conv2d(&k, None, 1, 1, 1, 0);
     assert!(
         vec![
             663., 708., 753., 798., 843., 888., 933., 1068., 1113., 1158., 1203., 1248., 1293.,
@@ -550,5 +562,40 @@ fn conv2d() {
             2058., 2103., 2148., 2283., 2328., 2373., 2418., 2463., 2508., 2553., 2688., 2733.,
             2778., 2823., 2868., 2913., 2958., 3093., 3138., 3183., 3228., 3273., 3318., 3363.
         ] == r.to_vec()
-    )
+    );
+
+    let (cin, cout, conv) = (3, 3, 3);
+
+    let mut a2 = Tensor::<Cpu>::from_vec(
+        (1..=cin * 6 * 6)
+            .map(|e| f32::from_usize(e).unwrap())
+            .collect::<Vec<f32>>(),
+        [cin, 1, 6, 6],
+    );
+    let mut k2 = Tensor::<Cpu>::from_vec(
+        (1..=cin * conv * conv)
+            .map(|e| f32::from_usize(e).unwrap())
+            .collect::<Vec<f32>>(),
+        [cin, 1, conv, conv],
+    );
+    let mut k3 = Tensor::<Cpu>::from_vec(
+        (1..=cout * cin * conv * conv)
+            .map(|e| f32::from_usize(e).unwrap())
+            .collect::<Vec<f32>>(),
+        [cout, cin, conv, conv],
+    );
+    let r = a2
+        .conv2d(&k2, None, 1, 1, 1, 0)
+        .conv2d(&k3, None, 1, 1, 1, 0);
+
+    assert!(
+        vec![
+            997434., 1058184., 1361934., 1422684., 2458350., 2610954., 3373974., 3526578.,
+            3919266., 4163724., 5386014., 5630472., 3184434., 3245184., 3548934., 3609684.,
+            7952094., 8104698., 8867718., 9020322., 12719754., 12964212., 14186502., 14430960.,
+            5371434., 5432184., 5735934., 5796684., 13445838., 13598442., 14361462., 14514066.,
+            21520242., 21764700., 22986990., 23231448.
+        ] == r.to_vec(),
+        "{r:?}"
+    );
 }
