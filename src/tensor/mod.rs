@@ -1,5 +1,6 @@
 pub mod dtype;
 pub mod shape;
+pub mod core_ops;
 
 use crate::backend::Backend;
 use crate::prelude::*;
@@ -8,64 +9,6 @@ use rand_distr::StandardNormal;
 pub struct Tensor<B: Backend> {
     pub(crate) inner: B,
     pub(crate) grad: Option<Vec<Tensor<B>>>,
-}
-
-impl<B: Backend> core::fmt::Debug for Tensor<B> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "\n{:?}Shape:{:?} Stride:{:?} Dtype:{} Device:{}\n",
-            self.inner,
-            self.inner.shape(),
-            self.inner.stride(),
-            self.dtype(),
-            self.device(),
-        )
-    }
-}
-
-impl<B: Backend> core::ops::Add for Tensor<B> {
-    type Output = Tensor<B>;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        Tensor {
-            inner: B::add(&self.inner, &rhs.inner),
-            grad: None,
-        }
-    }
-}
-
-impl<B: Backend> core::ops::Sub for Tensor<B> {
-    type Output = Tensor<B>;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        Tensor {
-            inner: B::sub(&self.inner, &rhs.inner),
-            grad: None,
-        }
-    }
-}
-
-impl<B: Backend> core::ops::Mul for Tensor<B> {
-    type Output = Tensor<B>;
-
-    fn mul(self, rhs: Self) -> Self::Output {
-        Tensor {
-            inner: B::mul(&self.inner, &rhs.inner),
-            grad: None,
-        }
-    }
-}
-
-impl<B: Backend> core::ops::Div for Tensor<B> {
-    type Output = Tensor<B>;
-
-    fn div(self, rhs: Self) -> Self::Output {
-        Tensor {
-            inner: B::div(&self.inner, &rhs.inner),
-            grad: None,
-        }
-    }
 }
 
 impl<B: Backend> Tensor<B> {
@@ -439,6 +382,7 @@ fn sum_axis() {
 fn matmul() {
     let a = Tensor::<Cpu>::from_vec([1., 2., 3., 4., 5., 6.], [2, 3]);
     let b = Tensor::<Cpu>::from_vec([10., 11., 20., 21., 30., 31.], [3, 2]);
+    &a + 1.0;
     let y = a.matmul(&b);
     assert!(!vec![140., 146., 320., 335.]
         .iter()
@@ -473,7 +417,7 @@ fn pool() {
             .collect::<Vec<f32>>(),
         [n, n, n],
     );
-    let k = Shape::from([3,3]);
+    let k = Shape::from([3, 3]);
     let stride = Shape::from(vec![1; k.len()]);
     let t = a._pool(k, stride, 1);
 }

@@ -16,7 +16,7 @@ pub mod tensor;
 
 pub mod prelude {
     pub use rand::prelude::*;
-    pub use crate::tensor::{shape::Shape, dtype::Dtype};
+    pub use crate::tensor::{shape::Shape, dtype::Dtype, core_ops::*};
     pub use crate::backend::cpu::Cpu;
     pub use crate::tensor::Tensor;
     pub use rand_distr::Standard;
