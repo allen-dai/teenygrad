@@ -29,12 +29,12 @@ impl<T: Dtype> core::fmt::Debug for Cpu<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for i in 0..self.shape.numel() {
             //write!(f, "{:<12?}", self_idx);
-            write!(f, "{:<12?}", self.buffer.0[self.row_i(i)]);
+            write!(f, "{:<14?}", self.buffer.0[self.row_i(i)]);
             if (i + 1) % self.shape[self.shape.len() - 1] == 0 {
                 write!(f, "\n");
             }
 
-            if (i + 1)
+            if self.shape.len() >= 2 && (i + 1)
                 % self.shape.dims[self.shape.len() - 2..]
                     .iter()
                     .product::<usize>()
@@ -99,21 +99,26 @@ impl<T: Dtype> Backend for Cpu<T> {
         }
     }
 
-    fn rand<D: rand_distr::Distribution<Self::Dtype>>(shape: &Shape, dist: D) -> Self {
+    fn rand(shape: &Shape) -> Self {
         let mut rng = crate::RNG.lock().unwrap();
         let mut out = vec![Default::default(); shape.numel()];
         for i in 0..shape.numel() {
-            out[i] = rng.sample(&dist);
+            out[i] = rng.gen_range(0f64..1f64);
         }
         Cpu {
-            buffer: Arc::new(CpuBuffer(out.into())),
+            buffer: Arc::new(CpuBuffer(
+                out.iter().map(|o| T::from_f64(*o).unwrap()).collect(),
+            )),
             shape: shape.clone(),
             stride: shape.strides(),
         }
     }
 
     fn add(&self, rhs: &Self) -> Self {
-        assert!(self.shape.numel() == rhs.shape.numel(), "Did you forgot to broadcast shape?");
+        assert!(
+            self.shape.numel() == rhs.shape.numel(),
+            "Addd op: Did you forgot to broadcast shape?"
+        );
         Cpu {
             buffer: Arc::new(CpuBuffer(
                 (0..self.shape.numel())
@@ -126,7 +131,10 @@ impl<T: Dtype> Backend for Cpu<T> {
     }
 
     fn sub(&self, rhs: &Self) -> Self {
-        assert!(self.shape.numel() == rhs.shape.numel(), "Did you forgot to broadcast shape?");
+        assert!(
+            self.shape.numel() == rhs.shape.numel(),
+            "Sub op: Did you forgot to broadcast shape?"
+        );
         Cpu {
             buffer: Arc::new(CpuBuffer(
                 (0..self.shape.numel())
@@ -139,7 +147,10 @@ impl<T: Dtype> Backend for Cpu<T> {
     }
 
     fn mul(&self, rhs: &Self) -> Self {
-        assert!(self.shape.numel() == rhs.shape.numel(), "Did you forgot to broadcast shape?");
+        assert!(
+            self.shape.numel() == rhs.shape.numel(),
+            "Mul op: Did you forgot to broadcast shape?"
+        );
         Cpu {
             buffer: Arc::new(CpuBuffer(
                 (0..self.shape.numel())
@@ -152,7 +163,10 @@ impl<T: Dtype> Backend for Cpu<T> {
     }
 
     fn div(&self, rhs: &Self) -> Self {
-        assert!(self.shape.numel() == rhs.shape.numel(), "Did you forgot to broadcast shape?");
+        assert!(
+            self.shape.numel() == rhs.shape.numel(),
+            "Div op: Did you forgot to broadcast shape? lhs:{} rhs: {}", self.shape, rhs.shape
+        );
         Cpu {
             buffer: Arc::new(CpuBuffer(
                 (0..self.shape.numel())
@@ -165,7 +179,10 @@ impl<T: Dtype> Backend for Cpu<T> {
     }
 
     fn bmax(&self, rhs: &Self) -> Self {
-        assert!(self.shape.numel() == rhs.shape.numel(), "Did you forgot to broadcast shape?");
+        assert!(
+            self.shape.numel() == rhs.shape.numel(),
+            "Did you forgot to broadcast shape?"
+        );
         Cpu {
             buffer: Arc::new(CpuBuffer(
                 (0..self.shape.numel())
@@ -184,7 +201,10 @@ impl<T: Dtype> Backend for Cpu<T> {
     }
 
     fn cmplt(&self, rhs: &Self) -> Self {
-        assert!(self.shape.numel() == rhs.shape.numel(), "Did you forgot to broadcast shape?");
+        assert!(
+            self.shape.numel() == rhs.shape.numel(),
+            "Did you forgot to broadcast shape?"
+        );
         Cpu {
             buffer: Arc::new(CpuBuffer(
                 (0..self.shape.numel())

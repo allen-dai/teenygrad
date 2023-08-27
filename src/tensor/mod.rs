@@ -1,18 +1,28 @@
 pub mod core_ops;
 pub mod dtype;
+pub mod id;
 pub mod shape;
 
+use std::collections::HashSet;
+
+use crate::backend::ops::*;
 use crate::backend::Backend;
 use crate::prelude::*;
-use rand_distr::StandardNormal;
+use rand_distr::{StandardNormal, Uniform};
+
+use id::{tensor_id, TensorId};
 
 #[derive(Clone)]
 pub struct Tensor<B: Backend> {
     pub(crate) inner: B,
-    pub(crate) grad: Option<Vec<Tensor<B>>>,
+    pub require_grad: bool,
+    pub(crate) grad: Option<Box<Tensor<B>>>,
+    pub(crate) _ctx: Option<Box<dyn Function<B>>>,
+    pub(crate) id: TensorId,
 }
 
 impl<B: Backend> Tensor<B> {
+    // ------------- Read/From/To Device
     pub fn device(&self) -> String {
         std::any::type_name::<B>()
             .to_string()
@@ -26,80 +36,23 @@ impl<B: Backend> Tensor<B> {
         std::any::type_name::<B::Dtype>().to_string()
     }
 
+    pub fn shape(&self) -> Shape {
+        B::shape(&self.inner)
+    }
+
+    pub fn stride(&self) -> Shape {
+        B::stride(&self.inner)
+    }
+
     pub fn from_vec<V: Into<Vec<B::Dtype>>, S: Into<Shape>>(data: V, shape: S) -> Self {
         let shape = shape.into();
         let data = data.into();
         assert!(data.len() == shape.numel());
         Self {
             inner: B::from_vec(data, &shape),
-            grad: None,
-        }
-    }
-
-    pub fn randn<S: Into<Shape>>(shape: S) -> Self
-    where
-        StandardNormal: rand_distr::Distribution<B::Dtype>,
-    {
-        Self {
-            inner: B::rand(&shape.into(), StandardNormal),
-            grad: None,
-        }
-    }
-
-    pub fn zeros<S: Into<Shape>>(shape: S) -> Self {
-        use num_traits::Zero;
-        Self {
-            inner: B::empty(&shape.into()).const_like(B::Dtype::zero()),
-            grad: None,
-        }
-    }
-
-    pub fn ones<S: Into<Shape>>(shape: S) -> Self {
-        use num_traits::One;
-        Self {
-            inner: B::empty(&shape.into()).const_like(B::Dtype::one()),
-            grad: None,
-        }
-    }
-
-    pub fn sum(&self, axis: isize) -> Self {
-        Self {
-            inner: B::sum(&self.inner, Some(axis), false),
-            grad: None,
-        }
-    }
-
-    pub fn sum_keepdim(&self, axis: isize) -> Self {
-        Self {
-            inner: B::sum(&self.inner, Some(axis), true),
-            grad: None,
-        }
-    }
-
-    pub fn sum_all(&self) -> Self {
-        Self {
-            inner: B::sum(&self.inner, None, false),
-            grad: None,
-        }
-    }
-
-    pub fn reshape<S: Into<Shape>>(&self, shape: S) -> Self {
-        Self {
-            inner: B::reshape(&self.inner, shape.into()),
-            grad: None,
-        }
-    }
-
-    pub fn permute<S: Into<Shape>>(&self, shape: S) -> Self {
-        Self {
-            inner: B::permute(&self.inner, shape.into()),
-            grad: None,
-        }
-    }
-
-    pub fn expand<S: Into<Shape>>(&self, shape: S) -> Self {
-        Self {
-            inner: B::expand(&self.inner, shape.into()),
+            require_grad: false,
+            _ctx: None,
+            id: tensor_id(),
             grad: None,
         }
     }
@@ -108,12 +61,249 @@ impl<B: Backend> Tensor<B> {
         self.inner.to_vec()
     }
 
-    pub fn shape(&self) -> Shape {
-        B::shape(&self.inner)
+    // ------------ Load
+    pub fn zeros<S: Into<Shape>>(shape: S) -> Self {
+        use num_traits::Zero;
+        Self {
+            inner: B::empty(&shape.into()).const_like(B::Dtype::zero()),
+            require_grad: false,
+            _ctx: None,
+            id: tensor_id(),
+            grad: None,
+        }
     }
 
-    pub fn stride(&self) -> Shape {
-        B::stride(&self.inner)
+    pub fn ones<S: Into<Shape>>(shape: S) -> Self {
+        use num_traits::One;
+        Self {
+            inner: B::empty(&shape.into()).const_like(B::Dtype::one()),
+            require_grad: false,
+            _ctx: None,
+            id: tensor_id(),
+            grad: None,
+        }
+    }
+
+    pub fn rand<S: Into<Shape>>(shape: S) -> Self {
+        Self {
+            inner: B::rand(&shape.into()),
+            require_grad: false,
+            _ctx: None,
+            id: tensor_id(),
+            grad: None,
+        }
+    }
+
+    pub fn randn<S: Into<Shape>>(shape: S) -> Self {
+        let shape = shape.into();
+        let mut ret = Self::rand(shape.clone());
+        let mut sec_ = Self::rand(shape.clone());
+        //return src[0].mul(2*math.pi).cos().mul( (1 - src[1]).log().mul(-2).sqrt()).cast(Tensor.default_type if dtype is None else dtype)
+        ret = ret * (B::Dtype::PI * B::Dtype::from_f32(2.0).unwrap());
+        ret = ret.cos() * ((-sec_ + 1.0).log() * 2.0).sqrt();
+        ret
+    }
+
+    pub fn normal<S: Into<Shape>>(shape: S, mean: f64, std: f64) -> Self {
+        Self::randn(shape) * std + mean
+    }
+
+    pub fn uniform<S: Into<Shape>>(shape: S) -> Self {
+        let low = -1.0;
+        let high = 1.0;
+        Self::rand(shape) * (high - low) + low
+    }
+
+    pub fn uniform_range<S: Into<Shape>>(shape: S, low: f64, high: f64) -> Self {
+        Self::rand(shape) * (high - low) + low
+    }
+
+    //def scaled_uniform(*shape, **kwargs) -> Tensor: return Tensor.uniform(*shape, **kwargs).mul(math.prod(shape)**-0.5)
+    pub fn scaled_uniform<S: Into<Shape>>(shape: S) -> Self {
+        let shape = shape.into();
+        Self::uniform(shape.clone()) * (shape.dims.iter().product::<usize>() as f64).powf(-0.5)
+    }
+
+    pub fn glorot_uniform<S: Into<Shape>>(shape: S) -> Self {
+        // Tensor.uniform(*shape, **kwargs).mul((6/(shape[0]+math.prod(shape[1:])))**0.5)
+        let shape = shape.into();
+        Self::uniform(shape.clone())
+            * (6.0 / (shape.dims[0] + shape.dims[1..].iter().product::<usize>()) as f64).powf(0.5)
+    }
+
+    pub fn kaiming_uniform<S: Into<Shape>>(shape: S) -> Self {
+        todo!()
+    }
+
+    pub fn kaiming_normal<S: Into<Shape>>(shape: S) -> Self {
+        todo!()
+    }
+
+    // ------------ Movement
+    pub fn reshape<S: Into<Shape>>(&self, shape: S) -> Self {
+        Reshape::default().apply(self, Some(shape.into()), None)
+    }
+
+    pub fn expand<S: Into<Shape>>(&self, shape: S) -> Self {
+        Self {
+            inner: B::expand(&self.inner, shape.into()),
+            require_grad: false,
+            _ctx: None,
+            id: tensor_id(),
+            grad: None,
+        }
+    }
+
+    pub fn permute<S: Into<Shape>>(&self, shape: S) -> Self {
+        Self {
+            inner: B::permute(&self.inner, shape.into()),
+            require_grad: false,
+            _ctx: None,
+            id: tensor_id(),
+            grad: None,
+        }
+    }
+
+    pub fn shrink<A: Into<Vec<(usize, usize)>>>(&self, arg: A) -> Self {
+        Tensor {
+            inner: self.inner.shrink(arg),
+            require_grad: false,
+            _ctx: None,
+            id: tensor_id(),
+            grad: None,
+        }
+    }
+
+    pub fn pad<A: Into<Vec<(usize, usize)>>>(&self, arg: A, const_value: B::Dtype) -> Self {
+        Tensor {
+            inner: self.inner.pad(arg, const_value),
+            require_grad: false,
+            _ctx: None,
+            id: tensor_id(),
+            grad: None,
+        }
+    }
+
+    pub fn pad2d<A: Into<Vec<usize>>>(&self, padding: A, const_value: B::Dtype) -> Self {
+        let padding = padding.into();
+        let slc: Vec<(isize, isize)> = padding
+            .iter()
+            .step_by(2)
+            .zip(
+                padding[1..]
+                    .iter()
+                    .step_by(2)
+                    .zip(self.shape().dims.iter().rev()),
+            )
+            .map(|(p0, (p1, s))| (-(*p0 as isize), *s as isize + *p1 as isize))
+            .rev()
+            .collect();
+        let mut slice_shape: Vec<(isize, isize)> = self.shape().dims
+            [..self.shape().len() - padding.len() / 2]
+            .iter()
+            .map(|sh| (0, *sh as isize))
+            .collect();
+        slice_shape.extend(slc.iter());
+        self.slice(slice_shape, const_value)
+    }
+
+    // -------- unary
+
+    pub fn log(&self) -> Self {
+        let ret = Self {
+            inner: B::log2(&self.inner),
+            require_grad: false,
+            _ctx: None,
+            id: tensor_id(),
+            grad: None,
+        };
+        ret * 2f64.log(f64::EPSILON)
+    }
+
+    pub fn log2(&self) -> Self {
+        Self {
+            inner: B::log2(&self.inner),
+            require_grad: false,
+            _ctx: None,
+            id: tensor_id(),
+            grad: None,
+        }
+    }
+
+    pub fn exp2(&self) -> Self {
+        Self {
+            inner: B::exp2(&self.inner),
+            require_grad: false,
+            _ctx: None,
+            id: tensor_id(),
+            grad: None,
+        }
+    }
+
+    pub fn relu(&self) -> Self {
+        todo!()
+    }
+
+    pub fn sigmoid(&self) -> Self {
+        todo!()
+    }
+
+    pub fn sin(&self) -> Self {
+        Self {
+            inner: B::sin(&self.inner),
+            require_grad: false,
+            _ctx: None,
+            id: tensor_id(),
+            grad: None,
+        }
+    }
+
+    pub fn cos(&self) -> Self {
+        (-self + B::Dtype::PI / B::Dtype::from_f32(2.0).unwrap()).sin()
+    }
+
+    pub fn sqrt(&self) -> Self {
+        Self {
+            inner: B::sqrt(&self.inner),
+            require_grad: false,
+            _ctx: None,
+            id: tensor_id(),
+            grad: None,
+        }
+    }
+
+    pub fn rsqrt(&self) -> Self {
+        (&Self::ones([1]) / self).sqrt()
+    }
+
+    pub fn tan(&self) -> Self {
+        self.sin() / self.cos()
+    }
+
+    pub fn sum(&self, axis: isize) -> Self {
+        let axis = if axis < 0 {
+            (self.shape().len() as isize + axis) as usize
+        } else {
+            axis as usize
+        };
+        let mut shape = self.shape().clone();
+        shape.dims[axis] = 0;
+        Sum::default().apply(&self, Some(shape), None)
+    }
+
+    pub fn sum_keepdim(&self, axis: isize) -> Self {
+        let axis = if axis < 0 {
+            (self.shape().len() as isize + axis) as usize
+        } else {
+            axis as usize
+        };
+        let mut shape = self.shape().clone();
+        shape.dims.push(axis);
+        Sum::default().apply(&self, Some(shape), None)
+    }
+
+    pub fn sum_all(&self) -> Self {
+        Sum::default().apply(&self, Some(Shape::from([1])), None)
     }
 
     pub fn matmul(&self, rhs: &Self) -> Self {
@@ -194,42 +384,6 @@ impl<B: Backend> Tensor<B> {
         self.permute(p)
     }
 
-    pub fn shrink<A: Into<Vec<(usize, usize)>>>(&self, arg: A) -> Self {
-        Tensor {
-            inner: self.inner.shrink(arg),
-            grad: None,
-        }
-    }
-
-    pub fn pad<A: Into<Vec<(usize, usize)>>>(&self, arg: A, const_value: B::Dtype) -> Self {
-        Tensor {
-            inner: self.inner.pad(arg, const_value),
-            grad: None,
-        }
-    }
-
-    pub fn pad2d<A: Into<Vec<usize>>>(&self, padding: A, const_value: B::Dtype) -> Self {
-        let padding = padding.into();
-        let slc: Vec<(isize, isize)> = padding
-            .iter()
-            .step_by(2)
-            .zip(
-                padding[1..]
-                    .iter()
-                    .step_by(2)
-                    .zip(self.shape().dims.iter().rev()),
-            )
-            .map(|(p0, (p1, s))| (-(*p0 as isize), *s as isize + *p1 as isize))
-            .rev()
-            .collect();
-        let mut slice_shape: Vec<(isize, isize)> = self.shape().dims
-            [..self.shape().len() - padding.len() / 2]
-            .iter()
-            .map(|sh| (0, *sh as isize))
-            .collect();
-        slice_shape.extend(slc.iter());
-        self.slice(slice_shape, const_value)
-    }
 
     #[rustfmt::skip]
     pub fn _pool<S: Into<Shape>>(&self, k_: S, stride: usize, dilation: usize) -> Self {
@@ -412,6 +566,133 @@ impl<B: Backend> Tensor<B> {
 
     pub fn t(&self) -> Self {
         self.transpose(1, 0)
+    }
+
+    pub fn deepwalk(&self) -> Vec<Self> {
+        let mut ret = Vec::new();
+        let mut visisted = HashSet::new();
+        Self::_deepwalk(self, &mut visisted, &mut ret);
+        ret
+    }
+
+    pub fn _deepwalk(node: &Self, visisted: &mut HashSet<TensorId>, ret: &mut Vec<Self>) {
+        visisted.insert(node.id);
+        if node._ctx.is_none() {
+            return;
+        }
+
+        for (k, n) in node._ctx.as_ref().unwrap().ctx().parents.iter() {
+            if !visisted.contains(k) {
+                Self::_deepwalk(n, visisted, ret);
+            }
+            ret.push(node.clone())
+        }
+    }
+
+    pub fn backward(&mut self) {
+        assert!(
+            self.shape().len() == 1,
+            "backward can only be called for scalar tensors, but it has shape {}",
+            self.shape()
+        );
+        self.grad = Some(Box::new(Self::ones([1])));
+        for mut t0 in self.deepwalk().into_iter().rev() {
+            let grads = match t0._ctx.as_mut().unwrap().backward(
+                t0.grad
+                    .as_ref()
+                    .expect("This should have a grad")
+                    .inner
+                    .clone(),
+            ) {
+                Grad::One(g) => vec![Tensor {
+                    inner: g,
+                    require_grad: false,
+                    grad: None,
+                    _ctx: None,
+                    id: tensor_id(),
+                }],
+                Grad::Two(mut g1, mut g2) => {
+                    let mut out = vec![];
+                    if let Some(g) = g1.take() {
+                        out.push(Tensor {
+                            inner: g,
+                            require_grad: false,
+                            grad: None,
+                            _ctx: None,
+                            id: tensor_id(),
+                        });
+                    }
+                    if let Some(g) = g2.take() {
+                        out.push(Tensor {
+                            inner: g,
+                            require_grad: false,
+                            grad: None,
+                            _ctx: None,
+                            id: tensor_id(),
+                        });
+                    }
+                    out
+                }
+            };
+            for (t, g) in t0
+                ._ctx
+                .as_mut()
+                .unwrap()
+                .ctx_mut()
+                .parents
+                .values_mut()
+                .zip(grads.iter())
+            {
+                assert!(
+                    t.shape() == g.shape(),
+                    "grad shape must match tensor shape, {} != {}",
+                    g.shape(),
+                    t.shape()
+                );
+                if t.grad.is_none() {
+                    t.grad = Some(Box::new(g.clone()));
+                } else {
+                    t.grad = Some(Box::new(t.grad.take().unwrap().as_ref() + g));
+                }
+            }
+            t0._ctx = None;
+        }
+    }
+
+    pub fn _add(&self, rhs: &Self) -> Self {
+        let (a, b) = Tensor::_broadcast(&self, &rhs);
+        Add::<B> {
+            need_input_grad: [a.require_grad, b.require_grad],
+            ..Default::default()
+        }
+        .apply(&a, None, Some(b.inner))
+    }
+
+    pub fn _sub(&self, rhs: &Self) -> Self {
+        let (a, b) = Tensor::_broadcast(&self, &rhs);
+        Sub::<B> {
+            need_input_grad: [a.require_grad, b.require_grad],
+            ..Default::default()
+        }
+        .apply(&a, None, Some(b.inner))
+    }
+
+    pub fn _mul(&self, rhs: &Self) -> Self {
+        let (a, b) = Tensor::_broadcast(&self, &rhs);
+        Mul::<B> {
+            need_input_grad: [a.require_grad, b.require_grad],
+            ..Default::default()
+        }
+        .apply(&a, None, Some(b.inner))
+    }
+
+    pub fn _div(&self, rhs: &Self) -> Self {
+        let (a, b) = Tensor::_broadcast(&self, &rhs);
+        Div::<B> {
+            need_input_grad: [a.require_grad, b.require_grad],
+            ..Default::default()
+        }
+        .apply(&a, None, Some(b.inner))
     }
 }
 
@@ -599,3 +880,9 @@ fn conv2d() {
         "{r:?}"
     );
 }
+//
+// #[test]
+// fn rand() {
+//     let t = Tensor::<Cpu>::glorot_uniform([3,3,3]);
+//     println!("{t:?}");
+// }

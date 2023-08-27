@@ -15,7 +15,7 @@ pub trait Backend: 'static + core::fmt::Debug + Clone + Send + Sync {
     fn to_vec(&self) -> Vec<Self::Dtype>;
     fn empty(shape: &Shape) -> Self;
     fn const_like(&self, const_: Self::Dtype) -> Self;
-    fn rand<D: Distribution<Self::Dtype>>(shape: &Shape, dist: D) -> Self;
+    fn rand(shape: &Shape) -> Self;
 
     // binary
     fn add(&self, rhs: &Self) -> Self;

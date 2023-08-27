@@ -1,26 +1,70 @@
-use crate::prelude::*;
-use std::marker::PhantomData;
+use crate::{
+    prelude::*,
+    tensor::id::{tensor_id, TensorId},
+};
+use dyn_clone::DynClone;
+use std::{
+    collections::{HashMap, HashSet},
+    marker::PhantomData,
+};
 
-pub trait Function<B: Backend> {
-    fn forward(&mut self, x: B, shape: Option<Shape>, y: Option<B>) -> B;
-    fn backward(&mut self, grad: B) -> Grad<B>;
+pub fn argsort<V: Into<Vec<usize>>>(shape: V) -> Vec<usize> {
+    let shape = shape.into();
+    let mut out = (0..shape.len()).into_iter().collect::<Vec<_>>();
+    out.sort_by_key(|&i| &shape[i]);
+    out
 }
 
-#[derive(Debug)]
+// TODO: Might need a better name for this, this can be confusing when accessing it from tensor
+// i.e tensor._ctx.unwrap().ctx().parents
+// Also might need to wrap this in a smart pointer, in case needing it outside of "Function".
+#[derive(Debug, Clone)]
+pub struct Ctx<B: Backend> {
+    pub(crate) parents: HashMap<TensorId, Tensor<B>>,
+}
+
+impl<B: Backend> Default for Ctx<B> {
+    fn default() -> Self {
+        Self {
+            parents: HashMap::new(),
+        }
+    }
+}
+
+pub trait Function<B: Backend>: DynClone + core::fmt::Debug {
+    fn forward(&mut self, x: &B, shape: Option<Shape>, y: Option<&B>) -> B;
+    fn backward(&mut self, grad: B) -> Grad<B>;
+    fn ctx_mut(&mut self) -> &mut Ctx<B>;
+    fn ctx(&self) -> &Ctx<B>;
+    fn apply(&mut self, x: &Tensor<B>, shape: Option<Shape>, y: Option<B>) -> Tensor<B>
+    where
+        Self: 'static + Sized,
+    {
+        let inner = self.forward(&x.inner, shape, y.as_ref());
+        let require_grad = x.require_grad;
+        if require_grad {
+            self.ctx_mut().parents.insert(x.id, x.clone());
+        }
+        Tensor {
+            inner,
+            require_grad,
+            _ctx: if require_grad {
+                Some(dyn_clone::clone_box(&*self))
+            } else {
+                None
+            },
+            id: tensor_id(),
+            grad: None,
+        }
+    }
+}
+
+dyn_clone::clone_trait_object!(<B> Function<B> where B: Backend);
+
+#[derive(Debug, Clone)]
 pub enum Grad<B: Backend> {
-    Contiguous(B),
-    Sin(B),
-    Log(B),
-    Exp(B),
-    Sqrt(B),
-    Max(B),
-    Sum(B),
-    Add(Option<B>, Option<B>),
-    Sub(Option<B>, Option<B>),
-    Mul(Option<B>, Option<B>),
-    Div(Option<B>, Option<B>),
-    Sigmoid(B),
-    Relu(B),
+    One(B),
+    Two(Option<B>, Option<B>),
 }
 
 // impl<B: Backend> core::fmt::Debug for Grad<B> {
@@ -48,133 +92,265 @@ macro_rules! df32 {
     };
 }
 
+#[derive(Clone, Debug)]
 pub struct Contiguous<B: Backend> {
-    phantom: PhantomData<B>,
+    pub(crate) ctx: Ctx<B>,
+}
+
+impl<B: Backend> Default for Contiguous<B> {
+    fn default() -> Self {
+        Self {
+            ctx: Ctx::default(),
+        }
+    }
 }
 
 impl<B: Backend> Function<B> for Contiguous<B> {
-    fn forward(&mut self, x: B, shape: Option<Shape>, y: Option<B>) -> B {
+    fn forward(&mut self, x: &B, shape: Option<Shape>, y: Option<&B>) -> B {
         x.contiguous()
     }
 
     fn backward(&mut self, grad: B) -> Grad<B> {
-        Grad::Contiguous(grad)
+        Grad::One(grad)
+    }
+
+    fn ctx_mut(&mut self) -> &mut Ctx<B> {
+        &mut self.ctx
+    }
+
+    fn ctx(&self) -> &Ctx<B> {
+        &self.ctx
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct Sin<B: Backend> {
-    pub(crate) x: B,
+    pub(crate) x: Option<B>,
+    pub(crate) ctx: Ctx<B>,
+}
+
+impl<B: Backend> Default for Sin<B> {
+    fn default() -> Self {
+        Self {
+            x: None,
+            ctx: Ctx::default(),
+        }
+    }
 }
 
 impl<B: Backend> Function<B> for Sin<B> {
-    fn forward(&mut self, x: B, shape: Option<Shape>, y: Option<B>) -> B {
-        self.x = x;
-        self.x.sin()
+    fn forward(&mut self, x: &B, shape: Option<Shape>, y: Option<&B>) -> B {
+        self.x = Some(x.clone());
+        x.sin()
     }
 
     fn backward(&mut self, grad: B) -> Grad<B> {
-        Grad::Sin(
-            self.x
-                .const_like(B::Dtype::PI / B::Dtype::from_f32(2.0).unwrap())
-                .sub(&self.x)
+        let x = self.x.as_ref().unwrap();
+        Grad::One(
+            x.const_like(B::Dtype::PI / B::Dtype::from_f32(2.0).unwrap())
+                .sub(x)
                 .sin()
                 .mul(&grad),
         )
     }
+
+    fn ctx_mut(&mut self) -> &mut Ctx<B> {
+        &mut self.ctx
+    }
+
+    fn ctx(&self) -> &Ctx<B> {
+        &self.ctx
+    }
 }
 
+#[derive(Clone, Debug)]
 pub struct Log<B: Backend> {
-    pub(crate) x: B,
+    pub(crate) x: Option<B>,
+    pub(crate) ctx: Ctx<B>,
+}
+
+impl<B: Backend> Default for Log<B> {
+    fn default() -> Self {
+        Self {
+            x: None,
+            ctx: Ctx::default(),
+        }
+    }
 }
 
 impl<B: Backend> Function<B> for Log<B> {
-    fn forward(&mut self, x: B, shape: Option<Shape>, y: Option<B>) -> B {
-        self.x = x;
-        self.x
-            .log2()
-            .mul(&self.x.const_like(df32!(2.0f32.log(f32::EPSILON))))
+    fn forward(&mut self, x: &B, shape: Option<Shape>, y: Option<&B>) -> B {
+        self.x = Some(x.clone());
+        x.log2().mul(&x.const_like(df32!(2.0f32.log(f32::EPSILON))))
     }
 
     fn backward(&mut self, grad: B) -> Grad<B> {
-        Grad::Log(grad.div(&self.x))
+        Grad::One(grad.div(self.x.as_ref().unwrap()))
+    }
+
+    fn ctx_mut(&mut self) -> &mut Ctx<B> {
+        &mut self.ctx
+    }
+
+    fn ctx(&self) -> &Ctx<B> {
+        &self.ctx
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct Exp<B: Backend> {
-    pub(crate) ret: B,
+    pub(crate) ret: Option<B>,
+    pub(crate) ctx: Ctx<B>,
+}
+
+impl<B: Backend> Default for Exp<B> {
+    fn default() -> Self {
+        Self {
+            ret: None,
+            ctx: Ctx::default(),
+        }
+    }
 }
 
 impl<B: Backend> Function<B> for Exp<B> {
-    fn forward(&mut self, x: B, shape: Option<Shape>, y: Option<B>) -> B {
-        self.ret = x
+    fn forward(&mut self, x: &B, shape: Option<Shape>, y: Option<&B>) -> B {
+        let ret = x
             .mul(&x.const_like(df32!(1f32 / 2.0f32.log(f32::EPSILON))))
             .exp2();
-        self.ret.clone()
+        self.ret = Some(ret.clone());
+        ret
     }
 
     fn backward(&mut self, grad: B) -> Grad<B> {
-        Grad::Exp(self.ret.mul(&grad))
+        Grad::One(self.ret.as_ref().unwrap().mul(&grad))
+    }
+
+    fn ctx_mut(&mut self) -> &mut Ctx<B> {
+        &mut self.ctx
+    }
+
+    fn ctx(&self) -> &Ctx<B> {
+        &self.ctx
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct Sqrt<B: Backend> {
     pub(crate) ret: Option<B>,
+    pub(crate) ctx: Ctx<B>,
+}
+
+impl<B: Backend> Default for Sqrt<B> {
+    fn default() -> Self {
+        Self {
+            ret: None,
+            ctx: Ctx::default(),
+        }
+    }
 }
 
 impl<B: Backend> Function<B> for Sqrt<B> {
-    fn forward(&mut self, x: B, shape: Option<Shape>, y: Option<B>) -> B {
+    fn forward(&mut self, x: &B, shape: Option<Shape>, y: Option<&B>) -> B {
         self.ret = Some(x.sqrt());
         self.ret.as_ref().unwrap().clone()
     }
 
     fn backward(&mut self, grad: B) -> Grad<B> {
         let ret = self.ret.as_ref().unwrap();
-        Grad::Sqrt(grad.div(&ret.mul(&ret.const_like(df32!(0.0f32)))))
+        Grad::One(grad.div(&ret.mul(&ret.const_like(df32!(0.0f32)))))
+    }
+
+    fn ctx_mut(&mut self) -> &mut Ctx<B> {
+        &mut self.ctx
+    }
+
+    fn ctx(&self) -> &Ctx<B> {
+        &self.ctx
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct Sum<B: Backend> {
-    pub(crate) input_shape: Shape,
-    pub(crate) phantom: PhantomData<B>,
+    pub(crate) input_shape: Option<Shape>,
+    pub(crate) ctx: Ctx<B>,
+}
+
+impl<B: Backend> Default for Sum<B> {
+    fn default() -> Self {
+        Self {
+            input_shape: None,
+            ctx: Ctx::default(),
+        }
+    }
 }
 
 impl<B: Backend> Function<B> for Sum<B> {
-    fn forward(&mut self, x: B, shape: Option<Shape>, y: Option<B>) -> B {
-        self.input_shape = shape.unwrap().into();
-        let sum_axis = x
-            .shape()
-            .dims
-            .iter()
-            .zip(self.input_shape.dims.iter())
-            .position(|(&x, &sh)| x != sh)
-            .unwrap();
-        x.sum(Some(sum_axis as isize), false)
+    fn forward(&mut self, x: &B, shape: Option<Shape>, y: Option<&B>) -> B {
+        let mut shape = shape.unwrap();
+        self.input_shape = Some(x.shape());
+        if shape.len() == 1 {
+            return x.sum(None, false);
+        }
+        let (keepdim, axis) = if shape.len() - x.shape().len() == 1 {
+            //TODO: hack, need change
+            (true, *shape.dims.last().unwrap())
+        } else {
+            (false, shape.dims.iter().position(|e| *e == 0).unwrap())
+        };
+        x.sum(Some(axis as isize), keepdim)
     }
 
     fn backward(&mut self, mut grad: B) -> Grad<B> {
-        grad.expand(self.input_shape.clone());
-        Grad::Sum(grad)
+        Grad::One(
+            grad.expand(
+                self.input_shape
+                    .as_ref()
+                    .expect("Sum bwd should have a input_shape")
+                    .clone(),
+            ),
+        )
+    }
+
+    fn ctx_mut(&mut self) -> &mut Ctx<B> {
+        &mut self.ctx
+    }
+
+    fn ctx(&self) -> &Ctx<B> {
+        &self.ctx
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct Max<B: Backend> {
-    pub(crate) x: B,
-    pub(crate) ret: B,
+    pub(crate) x: Option<B>,
+    pub(crate) ret: Option<B>,
+    pub(crate) ctx: Ctx<B>,
+}
+
+impl<B: Backend> Default for Max<B> {
+    fn default() -> Self {
+        Self {
+            x: None,
+            ret: None,
+            ctx: Ctx::default(),
+        }
+    }
 }
 
 impl<B: Backend> Function<B> for Max<B> {
     // TODO: we might need to pass shape into max()
-    fn forward(&mut self, x: B, shape: Option<Shape>, y: Option<B>) -> B {
-        self.ret = x.max();
-        self.x = x;
-        self.ret.clone()
+    fn forward(&mut self, x: &B, shape: Option<Shape>, y: Option<&B>) -> B {
+        self.ret = Some(x.max());
+        self.x = Some(x.clone());
+        self.ret.as_ref().unwrap().clone()
     }
 
     fn backward(&mut self, mut grad: B) -> Grad<B> {
-        let max_is_1s = self
-            .x
+        let x_ref = self.x.as_ref().unwrap();
+        let ret_ref = self.ret.as_ref().unwrap();
+        let max_is_1s = x_ref
             .const_like(df32!(1.0))
-            .sub(&self.x.cmplt(&self.ret.expand(self.x.shape())));
+            .sub(&x_ref.cmplt(&ret_ref.expand(x_ref.shape())));
         let sum_axis = max_is_1s
             .shape()
             .dims
@@ -182,29 +358,73 @@ impl<B: Backend> Function<B> for Max<B> {
             .zip(grad.shape().dims.iter())
             .position(|(&x, &sh)| x != sh)
             .unwrap();
-        let div = max_is_1s.sum(Some(sum_axis as isize), false).expand(self.x.shape());
-        Grad::Max(max_is_1s.div(&div).mul(&grad.expand(self.x.shape())))
+        let div = max_is_1s
+            .sum(Some(sum_axis as isize), false)
+            .expand(x_ref.shape());
+        Grad::One(max_is_1s.div(&div).mul(&grad.expand(x_ref.shape())))
+    }
+
+    fn ctx_mut(&mut self) -> &mut Ctx<B> {
+        &mut self.ctx
+    }
+
+    fn ctx(&self) -> &Ctx<B> {
+        &self.ctx
     }
 }
 
-pub struct Less;
+#[derive(Clone, Debug)]
+pub struct Less<B: Backend> {
+    pub(crate) ctx: Ctx<B>,
+}
 
-impl<B: Backend> Function<B> for Less {
-    fn forward(&mut self, x: B, shape: Option<Shape>, y: Option<B>) -> B {
+impl<B: Backend> Default for Less<B> {
+    fn default() -> Self {
+        Self {
+            ctx: Ctx::default(),
+        }
+    }
+}
+
+impl<B: Backend> Function<B> for Less<B> {
+    fn forward(&mut self, x: &B, shape: Option<Shape>, y: Option<&B>) -> B {
         x.cmplt(&y.expect("Less fwd op expects rhs"))
     }
 
     fn backward(&mut self, grad: B) -> Grad<B> {
         unreachable!("Less op can not bwd")
     }
+
+    fn ctx_mut(&mut self) -> &mut Ctx<B> {
+        &mut self.ctx
+    }
+
+    fn ctx(&self) -> &Ctx<B> {
+        &self.ctx
+    }
 }
 
-pub struct Add {
-    need_input_grad: [bool; 2],
+#[derive(Clone, Debug)]
+pub struct Add<B: Backend> {
+    pub(crate) need_input_grad: [bool; 2],
+    pub(crate) x: Option<B>,
+    pub(crate) y: Option<B>,
+    pub(crate) ctx: Ctx<B>,
 }
 
-impl<B: Backend> Function<B> for Add {
-    fn forward(&mut self, x: B, shape: Option<Shape>, y: Option<B>) -> B {
+impl<B: Backend> Default for Add<B> {
+    fn default() -> Self {
+        Self {
+            need_input_grad: [false, false],
+            x: None,
+            y: None,
+            ctx: Ctx::default(),
+        }
+    }
+}
+
+impl<B: Backend> Function<B> for Add<B> {
+    fn forward(&mut self, x: &B, shape: Option<Shape>, y: Option<&B>) -> B {
         x.add(&y.expect("Add fwd op expects rhs"))
     }
 
@@ -219,16 +439,39 @@ impl<B: Backend> Function<B> for Add {
         } else {
             None
         };
-        Grad::Add(x, y)
+        Grad::Two(x, y)
+    }
+
+    fn ctx_mut(&mut self) -> &mut Ctx<B> {
+        &mut self.ctx
+    }
+
+    fn ctx(&self) -> &Ctx<B> {
+        &self.ctx
     }
 }
 
-pub struct Sub {
-    need_input_grad: [bool; 2],
+#[derive(Clone, Debug)]
+pub struct Sub<B: Backend> {
+    pub(crate) need_input_grad: [bool; 2],
+    pub(crate) x: Option<B>,
+    pub(crate) y: Option<B>,
+    pub(crate) ctx: Ctx<B>,
 }
 
-impl<B: Backend> Function<B> for Sub {
-    fn forward(&mut self, x: B, shape: Option<Shape>, y: Option<B>) -> B {
+impl<B: Backend> Default for Sub<B> {
+    fn default() -> Self {
+        Self {
+            need_input_grad: [false, false],
+            x: None,
+            y: None,
+            ctx: Ctx::default(),
+        }
+    }
+}
+
+impl<B: Backend> Function<B> for Sub<B> {
+    fn forward(&mut self, x: &B, shape: Option<Shape>, y: Option<&B>) -> B {
         x.sub(&y.expect("Sub fwd op expects rhs"))
     }
 
@@ -243,107 +486,195 @@ impl<B: Backend> Function<B> for Sub {
         } else {
             None
         };
-        Grad::Sub(x, y)
+        Grad::Two(x, y)
+    }
+
+    fn ctx_mut(&mut self) -> &mut Ctx<B> {
+        &mut self.ctx
+    }
+
+    fn ctx(&self) -> &Ctx<B> {
+        &self.ctx
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct Mul<B: Backend> {
-    need_input_grad: [bool; 2],
-    x: B,
-    y: B,
+    pub(crate) need_input_grad: [bool; 2],
+    pub(crate) x: Option<B>,
+    pub(crate) y: Option<B>,
+    pub(crate) ctx: Ctx<B>,
+}
+
+impl<B: Backend> Default for Mul<B> {
+    fn default() -> Self {
+        Self {
+            need_input_grad: [false, false],
+            x: None,
+            y: None,
+            ctx: Ctx::default(),
+        }
+    }
 }
 
 impl<B: Backend> Function<B> for Mul<B> {
-    fn forward(&mut self, x: B, shape: Option<Shape>, y: Option<B>) -> B {
-        self.x = x;
-        self.y = y.expect("Mul fwd op expects rhs");
-        self.x.mul(&self.y)
+    fn forward(&mut self, x: &B, shape: Option<Shape>, y: Option<&B>) -> B {
+        self.x = Some(x.clone());
+        self.y = Some(y.expect("Mul fwd op expects rhs").clone());
+        x.mul(y.as_ref().unwrap())
     }
 
     fn backward(&mut self, grad: B) -> Grad<B> {
         let x = if self.need_input_grad[0] {
-            Some(self.y.mul(&grad))
+            Some(self.y.as_ref().unwrap().mul(&grad))
         } else {
             None
         };
         let y = if self.need_input_grad[1] {
-            Some(self.x.mul(&grad))
+            Some(self.x.as_ref().unwrap().mul(&grad))
         } else {
             None
         };
-        Grad::Mul(x, y)
+        Grad::Two(x, y)
+    }
+
+    fn ctx_mut(&mut self) -> &mut Ctx<B> {
+        &mut self.ctx
+    }
+
+    fn ctx(&self) -> &Ctx<B> {
+        &self.ctx
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct Div<B: Backend> {
-    need_input_grad: [bool; 2],
-    x: B,
-    y: B,
+    pub(crate) need_input_grad: [bool; 2],
+    pub(crate) x: Option<B>,
+    pub(crate) y: Option<B>,
+    pub(crate) ctx: Ctx<B>,
+}
+
+impl<B: Backend> Default for Div<B> {
+    fn default() -> Self {
+        Self {
+            need_input_grad: [false, false],
+            x: None,
+            y: None,
+            ctx: Ctx::default(),
+        }
+    }
 }
 
 impl<B: Backend> Function<B> for Div<B> {
-    fn forward(&mut self, x: B, shape: Option<Shape>, y: Option<B>) -> B {
-        self.x = x;
-        self.y = y.expect("Mul fwd op expects rhs");
-        self.x.div(&self.y)
+    fn forward(&mut self, x: &B, shape: Option<Shape>, y: Option<&B>) -> B {
+        self.x = Some(x.clone());
+        self.y = Some(y.expect("Mul fwd op expects rhs").clone());
+        x.div(y.as_ref().unwrap())
     }
 
     fn backward(&mut self, grad: B) -> Grad<B> {
         let x = if self.need_input_grad[0] {
-            Some(grad.div(&self.y))
+            Some(grad.div(self.y.as_ref().unwrap()))
         } else {
             None
         };
         let y = if self.need_input_grad[1] {
+            let y_ref = self.y.as_ref().unwrap();
             Some(
                 grad.const_like(df32!(0.0))
                     .sub(&grad)
-                    .mul(&self.x)
-                    .div(&self.y.mul(&self.y)),
+                    .mul(self.x.as_ref().unwrap())
+                    .div(&y_ref.mul(y_ref)),
             )
         } else {
             None
         };
-        Grad::Div(x, y)
+        Grad::Two(x, y)
+    }
+
+    fn ctx_mut(&mut self) -> &mut Ctx<B> {
+        &mut self.ctx
+    }
+
+    fn ctx(&self) -> &Ctx<B> {
+        &self.ctx
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct Sigmoid<B: Backend> {
-    pub(crate) ret: B,
+    pub(crate) ret: Option<B>,
+    pub(crate) ctx: Ctx<B>,
+}
+
+impl<B: Backend> Default for Sigmoid<B> {
+    fn default() -> Self {
+        Self {
+            ret: None,
+            ctx: Ctx::default(),
+        }
+    }
 }
 
 impl<B: Backend> Function<B> for Sigmoid<B> {
-    fn forward(&mut self, x: B, shape: Option<Shape>, y: Option<B>) -> B {
-        self.ret = x.const_like(df32!(1.0)).div(
-            &x.const_like(df32!(1.0)).add(
-                &x.mul(&x.const_like(df32!(-1.0 / 2.0f32.log(f32::EPSILON))))
-                    .exp2(),
+    fn forward(&mut self, x: &B, shape: Option<Shape>, y: Option<&B>) -> B {
+        self.ret = Some(
+            x.const_like(df32!(1.0)).div(
+                &x.const_like(df32!(1.0)).add(
+                    &x.mul(&x.const_like(df32!(-1.0 / 2.0f32.log(f32::EPSILON))))
+                        .exp2(),
+                ),
             ),
         );
-        self.ret.clone()
+        self.ret.as_ref().unwrap().clone()
     }
 
     fn backward(&mut self, grad: B) -> Grad<B> {
-        Grad::Sigmoid(
-            self.ret
-                .mul(&self.ret.const_like(df32!(1.0)).sub(&self.ret))
+        let ret_ref = self.ret.as_ref().unwrap();
+        Grad::One(
+            ret_ref
+                .mul(
+                    &ret_ref
+                        .const_like(df32!(1.0))
+                        .sub(&self.ret.as_ref().unwrap()),
+                )
                 .mul(&grad),
         )
     }
+
+    fn ctx_mut(&mut self) -> &mut Ctx<B> {
+        &mut self.ctx
+    }
+
+    fn ctx(&self) -> &Ctx<B> {
+        &self.ctx
+    }
 }
 
+#[derive(Clone, Debug)]
 pub struct Relu<B: Backend> {
     pub(crate) ret: Option<B>,
+    pub(crate) ctx: Ctx<B>,
+}
+
+impl<B: Backend> Default for Relu<B> {
+    fn default() -> Self {
+        Self {
+            ret: None,
+            ctx: Ctx::default(),
+        }
+    }
 }
 
 impl<B: Backend> Function<B> for Relu<B> {
-    fn forward(&mut self, x: B, _: Option<Shape>, y: Option<B>) -> B {
+    fn forward(&mut self, x: &B, shape: Option<Shape>, y: Option<&B>) -> B {
         self.ret = Some(x.bmax(&x.const_like(df32!(0.0))));
         self.ret.as_ref().unwrap().clone()
     }
 
     fn backward(&mut self, grad: B) -> Grad<B> {
-        Grad::Relu(
+        Grad::One(
             self.ret
                 .as_ref()
                 .unwrap()
@@ -352,4 +683,106 @@ impl<B: Backend> Function<B> for Relu<B> {
                 .mul(&grad),
         )
     }
+
+    fn ctx_mut(&mut self) -> &mut Ctx<B> {
+        &mut self.ctx
+    }
+
+    fn ctx(&self) -> &Ctx<B> {
+        &self.ctx
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Reshape<B: Backend> {
+    pub(crate) input_shape: Option<Shape>,
+    pub(crate) ctx: Ctx<B>,
+}
+
+impl<B: Backend> Default for Reshape<B> {
+    fn default() -> Self {
+        Self {
+            input_shape: None,
+            ctx: Ctx::default(),
+        }
+    }
+}
+
+impl<B: Backend> Function<B> for Reshape<B> {
+    fn forward(&mut self, x: &B, shape: Option<Shape>, y: Option<&B>) -> B {
+        self.input_shape = Some(x.shape());
+        x.reshape(shape.expect("Reshape mlops expect a shape"))
+    }
+
+    fn backward(&mut self, grad: B) -> Grad<B> {
+        Grad::One(
+            grad.reshape(
+                self.input_shape
+                    .as_ref()
+                    .expect("Reshape backward should already have a shape")
+                    .clone(),
+            ),
+        )
+    }
+
+    fn ctx_mut(&mut self) -> &mut Ctx<B> {
+        &mut self.ctx
+    }
+
+    fn ctx(&self) -> &Ctx<B> {
+        &self.ctx
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Permute<B: Backend> {
+    pub(crate) permute_order: Option<Shape>,
+    pub(crate) ctx: Ctx<B>,
+    phantom: PhantomData<B>,
+}
+
+impl<B: Backend> Default for Permute<B> {
+    fn default() -> Self {
+        Self {
+            permute_order: None,
+            phantom: PhantomData,
+            ctx: Ctx::default(),
+        }
+    }
+}
+
+impl<B: Backend> Function<B> for Permute<B> {
+    fn forward(&mut self, x: &B, shape: Option<Shape>, y: Option<&B>) -> B {
+        self.permute_order = Some(x.shape());
+        x.permute(shape.expect("Permute mlops expect a permute order"))
+    }
+
+    fn backward(&mut self, grad: B) -> Grad<B> {
+        Grad::One(
+            grad.permute(argsort(
+                &*self
+                    .permute_order
+                    .as_ref()
+                    .expect("Permute bwd order should not be empty")
+                    .dims,
+            )),
+        )
+    }
+
+    fn ctx_mut(&mut self) -> &mut Ctx<B> {
+        &mut self.ctx
+    }
+
+    fn ctx(&self) -> &Ctx<B> {
+        &self.ctx
+    }
+}
+
+#[test]
+fn test_ctx() {
+    let mut o = Tensor::<Cpu>::randn([3, 3]);
+    o.require_grad = true;
+    let mut t = o.sum_all();
+    t.backward();
+    // TODO: this is just checking backward, need better test
 }
