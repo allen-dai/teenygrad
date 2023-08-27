@@ -29,7 +29,7 @@ impl<T: Dtype> core::fmt::Debug for Cpu<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for i in 0..self.shape.numel() {
             //write!(f, "{:<12?}", self_idx);
-            write!(f, "{:>12?}", self.buffer.0[self.row_i(i)]);
+            write!(f, "{:>8?}", self.buffer.0[self.row_i(i)]);
             if (i + 1) % self.shape[self.shape.len() - 1] == 0 {
                 write!(f, "\n");
             }
@@ -76,7 +76,11 @@ impl<T: Dtype> Backend for Cpu<T> {
     }
 
     fn to_vec(&self) -> Vec<T> {
-        self.buffer.0.clone().into()
+        let mut ret = Vec::with_capacity(self.shape.numel());
+        for i in 0..self.shape.numel() {
+            ret.push(self[self.row_i(i)]);
+        }
+        ret
     }
 
     fn empty(shape: &Shape) -> Self {
@@ -338,6 +342,37 @@ impl<T: Dtype> Backend for Cpu<T> {
         if self.buffer.0.len() != self.shape().numel() {
             println!("reshape copied mem");
             out.buffer = Self::contiguous(&self).buffer.clone();
+        }
+        if self
+            .shape
+            .dims
+            .iter()
+            .filter(|&d| *d != 1)
+            .into_iter()
+            .eq(shape.dims.iter().filter(|&d| *d != 1))
+        {
+            let mut new_stride_dvec: VecDeque<usize> = VecDeque::new();
+            new_stride_dvec.extend(
+                self.shape
+                    .dims
+                    .iter()
+                    .zip(self.stride.dims.iter())
+                    .filter(|(sh, st)| **sh != 1)
+                    .map(|(sh, st)| *st),
+            );
+
+            let new_stride: Vec<usize> = shape
+                .dims
+                .iter()
+                .map(|sh| {
+                    if *sh == 1 {
+                        0
+                    } else {
+                        new_stride_dvec.pop_front().unwrap()
+                    }
+                })
+                .collect();
+            out.stride = Shape::from(new_stride);
         }
         out
     }
