@@ -536,21 +536,3 @@ impl<T: Dtype> Backend for Cpu<T> {
     //     self.stride = shape.into();
     // }
 }
-
-#[test]
-fn cpu_pad() {
-    use crate::prelude::*;
-    let mut t = Tensor::<Cpu>::from_vec(
-        (1..=3 * 3 * 3)
-            .map(|e| f32::from_usize(e).unwrap())
-            .collect::<Vec<f32>>(),
-        [3, 3, 3],
-    );
-    let r = t
-        .pad([(1, 1), (1, 1), (1, 1)], 0f32)
-        .slice([(1, 9), (1, 9), (1, 9)], 0f32);
-    // let rr = r.shrink([(1, 2), (1, 2), (1, 2)]);
-    //println!("{t:?}");
-    println!("{:?} {} {}", r, r.shape(), r.stride());
-    //println!("{:?} {} {}", rr, rr.shape(), rr.stride());
-}
