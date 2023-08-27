@@ -340,7 +340,7 @@ impl<T: Dtype> Backend for Cpu<T> {
         out.shape = shape.clone();
         out.stride = shape.strides();
         if self.buffer.0.len() != self.shape().numel() {
-            println!("reshape copied mem");
+            // println!("reshape copied mem");
             out.buffer = Self::contiguous(&self).buffer.clone();
         }
         if self

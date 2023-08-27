@@ -136,10 +136,7 @@ impl<B: Backend> Tensor<B> {
         let mut order = (0..b_shape.len()).collect::<Vec<usize>>();
         order.swap(b_shape.len() - 1, b_shape.len() - 2.min(n2));
         let mut b = rhs.reshape(b_shape).permute(order);
-        // println!("{:?}", b);
-        // println!("{:?} {:?}\n{:?} {:?}", a.shape(), a.stride(), b.shape(), b.stride());
         let (a, b) = Self::_broadcast(a, b);
-        //println!("{:?} {:?}\n{:?} {:?}", a.shape(), a.stride(), b.shape(), b.stride());
         (a * b).sum(-1)
     }
 
@@ -189,9 +186,9 @@ impl<B: Backend> Tensor<B> {
             d2 as usize
         };
 
-        let mut new_shape = (0..self.shape().len()).collect::<Vec<usize>>();
-        new_shape.swap(d1, d2);
-        self.permute(new_shape)
+        let mut p = (0..self.shape().len()).collect::<Vec<usize>>();
+        p.swap(d1, d2);
+        self.permute(p)
     }
 
     pub fn shrink<A: Into<Vec<(usize, usize)>>>(&self, arg: A) -> Self {
@@ -360,7 +357,6 @@ impl<B: Backend> Tensor<B> {
         };
         let HW = weigth.shape().dims[2..].to_vec();
         let mut padding_ = vec![padding; 2 * HW.len()];
-        // println!("{} {}", self.shape(), self.stride());
         let mut x =
             self.pad2d(padding_, B::Dtype::zero())
                 ._pool(Shape::from(HW.clone()), stride, dilation);
@@ -379,16 +375,8 @@ impl<B: Backend> Tensor<B> {
         permute_tmp.extend((0..oyx.len()).into_iter().map(|i| 4 + i));
         permute_tmp.push(2);
         permute_tmp.extend((0..HW.len()).into_iter().map(|i| 4 + oyx.len() + i));
-        // println!("{} {}", x.shape(), x.stride());
-        x = x.reshape(rsh_tmp);
-        // println!("{x:?}");
-        // println!("{} {}", x.shape(), x.stride());
-        x = x.expand(exp_tmp);
-        // println!("{} {}", x.shape(), x.stride());
-        x = x.permute(permute_tmp);
-        // println!("{} {}", x.shape(), x.stride());
+        x = x.reshape(rsh_tmp).expand(exp_tmp).permute(permute_tmp);
         // ret = (x * weight.reshape(1, groups, rcout, *[1] * len(oyx), cin, *HW)).sum([-1-i for i in range(1+len(oyx))], keepdim=True).reshape(bs, cout, *oyx)
-        // println!("{x:?}");
         let mut w_rsh_tmp = vec![1, groups, rcout];
         w_rsh_tmp.extend(vec![1; oyx.len()]);
         w_rsh_tmp.push(cin);
