@@ -240,7 +240,7 @@ impl<T: Dtype> Backend for Cpu<T> {
         }
     }
 
-    fn sum(&self, _axis: Option<isize>) -> Self {
+    fn sum(&self, _axis: Option<isize>, keepdim: bool) -> Self {
         if _axis.is_none() {
             return Cpu {
                 buffer: Arc::new(CpuBuffer(
@@ -286,6 +286,11 @@ impl<T: Dtype> Backend for Cpu<T> {
                     idx += 1;
                 }
             }
+        }
+        if keepdim {
+            let mut keepdim_shape = self.shape.clone();
+            keepdim_shape[axis] = 1;
+            out = out.reshape(keepdim_shape.clone());
         }
         out
     }
@@ -506,7 +511,9 @@ fn cpu_pad() {
             .collect::<Vec<f32>>(),
         [3, 3, 3],
     );
-    let r = t.pad([(1, 1), (1, 1), (1, 1)], 0f32).slice([(1,9),(1,9),(1,9)], 0f32);
+    let r = t
+        .pad([(1, 1), (1, 1), (1, 1)], 0f32)
+        .slice([(1, 9), (1, 9), (1, 9)], 0f32);
     // let rr = r.shrink([(1, 2), (1, 2), (1, 2)]);
     //println!("{t:?}");
     println!("{:?} {} {}", r, r.shape(), r.stride());

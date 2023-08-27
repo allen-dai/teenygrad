@@ -1,6 +1,6 @@
+pub mod core_ops;
 pub mod dtype;
 pub mod shape;
-pub mod core_ops;
 
 use crate::backend::Backend;
 use crate::prelude::*;
@@ -63,14 +63,21 @@ impl<B: Backend> Tensor<B> {
 
     pub fn sum(&self, axis: isize) -> Self {
         Self {
-            inner: B::sum(&self.inner, Some(axis)),
+            inner: B::sum(&self.inner, Some(axis), false),
+            grad: None,
+        }
+    }
+
+    pub fn sum_keepdim(&self, axis: isize) -> Self {
+        Self {
+            inner: B::sum(&self.inner, Some(axis), true),
             grad: None,
         }
     }
 
     pub fn sum_all(&self) -> Self {
         Self {
-            inner: B::sum(&self.inner, None),
+            inner: B::sum(&self.inner, None, false),
             grad: None,
         }
     }
@@ -170,7 +177,7 @@ impl<B: Backend> Tensor<B> {
         (x, y)
     }
 
-    pub fn t(&self, d1: isize, d2: isize) -> Self {
+    pub fn transpose(&self, d1: isize, d2: isize) -> Self {
         let d1 = if d1 < 0 {
             (self.shape().len() as isize + d1) as usize
         } else {
@@ -201,12 +208,36 @@ impl<B: Backend> Tensor<B> {
         }
     }
 
+    pub fn pad2d<A: Into<Vec<usize>>>(&self, padding: A, const_value: B::Dtype) -> Self {
+        let padding = padding.into();
+        let slc: Vec<(isize, isize)> = padding[..]
+            .iter()
+            .step_by(2)
+            .zip(
+                padding[1..]
+                    .iter()
+                    .step_by(2)
+                    .zip(self.shape().dims.iter().rev()),
+            )
+            .map(|(p0, (p1, s))| (-(*p0 as isize), *s as isize + *p1 as isize))
+            .rev()
+            .collect();
+        let mut slice_shape: Vec<(isize, isize)> = self.shape().dims
+            [..self.shape().len() - padding.len() / 2]
+            .iter()
+            .map(|sh| (0, *sh as isize))
+            .collect();
+        slice_shape.extend(slc.iter());
+        self.slice(slice_shape, const_value)
+    }
+
     #[rustfmt::skip]
-    pub fn _pool<S: Into<Shape>>(&self, k_: S, stride: S, dilation: usize) -> Self {
+    pub fn _pool<S: Into<Shape>>(&self, k_: S, stride: usize, dilation: usize) -> Self {
         let self_shape = self.shape();
-        let (k_, s_) = (k_.into(), stride.into());
-        assert!(self_shape.len() >= k_.len(), "can't pool {self_shape:?} with {k_:?}");
+        let k_ = k_.into();
         let d_ = Shape::from(vec![dilation;k_.len()]);
+        let s_ = Shape::from(vec![stride;k_.len()]);
+        assert!(self_shape.len() >= k_.len(), "can't pool {self_shape:?} with {k_:?}");
         assert!(k_.len() == s_.len() && s_.len() == d_.len(), "stride/dilation mismatch kernel:{k_} stride:{s_} dilation:{d_}");
         let slc_prefix: Vec<(usize, usize)> = self_shape.dims[0..self_shape.len() - k_.len()]
             .iter()
@@ -223,7 +254,6 @@ impl<B: Backend> Tensor<B> {
 
         let mut xup = if k_.dims.iter().zip(s_.dims.iter()).any(|(k, s)| k > s) || d_.dims.iter().any(|d| *d != 1)
         {
-            let mut xup;
             let o_: Vec<usize> = i_
                 .iter()
                 .zip(d_.dims.iter().zip(k_.dims.iter().zip(s_.dims.iter())))
@@ -241,14 +271,14 @@ impl<B: Backend> Tensor<B> {
             tmp2.extend(e_.iter().zip(i_.iter()).map(|(e, i)| vec![*e, *i]).collect::<Vec<Vec<usize>>>().iter().flatten());
             let mut tmp3 = prefix.clone();
             tmp3.extend(e_.iter().zip(i_.iter()).map(|(e, i)| *e * *i));
-            xup = self.reshape(tmp).expand(tmp2).reshape(tmp3);
+            let mut xup = self.reshape(tmp).expand(tmp2).reshape(tmp3);
 
             // Stride by dilation
             let mut tmp = slc_prefix.clone();
             tmp.extend(k_.dims.iter().zip(i_.iter().zip(d_.dims.iter())).map(|(k, (i, d))|{
                 (0, k*(i+d))
             }));
-            xup = xup.slice(tmp, B::Dtype::zero());
+            xup = xup.slice(tmp.iter().map(|e| (e.0 as isize, e.1 as isize)).collect::<Vec<(isize, isize)>>(), B::Dtype::zero());
 
             let mut tmp = prefix.clone();
             tmp.extend(k_.dims.iter().zip(i_.iter().zip(d_.dims.iter())).map(|(k, (i, d))| vec![*k, *i + *d]).collect::<Vec<Vec<usize>>>().iter().flatten());
@@ -256,7 +286,7 @@ impl<B: Backend> Tensor<B> {
 
             let mut tmp = slc_prefix.clone();
             tmp.extend(k_.dims.iter().zip(o_.iter().zip(s_.dims.iter())).map(|(k, (o, s))| vec![(0, *k),(0, *o * *s)]).collect::<Vec<Vec<(usize, usize)>>>().iter().flatten());
-            xup = xup.slice(tmp, B::Dtype::zero());
+            xup = xup.slice(tmp.iter().map(|e| (e.0 as isize, e.1 as isize)).collect::<Vec<(isize, isize)>>(), B::Dtype::zero());
 
             // handle stride, and permute to move reduce to the end
             let mut tmp = prefix.clone();
@@ -265,26 +295,24 @@ impl<B: Backend> Tensor<B> {
 
             let mut tmp = slc_prefix.clone();
             tmp.extend(k_.dims.iter().zip(o_.iter()).map(|(k, o)| vec![(0, *k), (0, *o), (0, 1)]).collect::<Vec<Vec<(usize, usize)>>>().iter().flatten());
-            xup = xup.slice(tmp, B::Dtype::zero());
+            xup = xup.slice(tmp.iter().map(|e| (e.0 as isize, e.1 as isize)).collect::<Vec<(isize, isize)>>(), B::Dtype::zero());
 
             let mut tmp = prefix.clone();
             tmp.extend(k_.dims.iter().zip(o_.iter()).map(|(k, o)| vec![*k, *o]).collect::<Vec<Vec<usize>>>().iter().flatten());
             xup = xup.reshape(tmp);
 
-            let mut tmp = vec![0usize; prefix.len()];
+            let mut tmp: Vec<usize> = (0..prefix.len()).into_iter().collect();
             tmp.extend((0..k_.dims.len()).map(|i| prefix.len() + i * 2 + 1));
             tmp.extend((0..k_.dims.len()).map(|i| prefix.len() + i * 2));
             xup.permute(tmp)
         } else {
-            let mut xup;
-
             let o_:Vec<usize> = i_.iter().zip(s_.dims.iter().zip(k_.dims.iter())).map(|(i, (s, k))|
                 (*i+(*s-*k))*s
             ).collect();
 
             let mut tmp = slc_prefix.clone();
             tmp.extend(o_.iter().zip(s_.dims.iter()).map(|(o, s)| vec![(0, *o * *s)]).collect::<Vec<Vec<(usize, usize)>>>().iter().flatten());
-            xup = self.slice(tmp, B::Dtype::zero());
+            let mut xup = self.slice(tmp.iter().map(|e| (e.0 as isize, e.1 as isize)).collect::<Vec<(isize, isize)>>(), B::Dtype::zero());
 
             let mut tmp = prefix.clone();
             tmp.extend(o_.iter().zip(s_.dims.iter()).map(|(o, s)| vec![*o, *s]).collect::<Vec<Vec<usize>>>().iter().flatten());
@@ -292,9 +320,9 @@ impl<B: Backend> Tensor<B> {
 
             let mut tmp = slc_prefix.clone();
             tmp.extend(o_.iter().zip(k_.dims.iter()).map(|(o, k)| vec![(0, *o), (0, *k)]).collect::<Vec<Vec<(usize, usize)>>>().iter().flatten());
-            xup = self.slice(tmp, B::Dtype::zero());
+            xup = xup.slice(tmp.iter().map(|e| (e.0 as isize, e.1 as isize)).collect::<Vec<(isize, isize)>>(), B::Dtype::zero());
 
-            let mut tmp = vec![0usize; prefix.len()];
+            let mut tmp: Vec<usize> = (0..prefix.len()).into_iter().collect();
             tmp.extend((0..k_.dims.len()).map(|i| prefix.len() + i * 2));
             tmp.extend((0..k_.dims.len()).map(|i| prefix.len() + i * 2 + 1));
             xup.permute(tmp)
@@ -303,18 +331,83 @@ impl<B: Backend> Tensor<B> {
     }
 
     #[rustfmt::skip]
-    pub fn slice<A: Into<Vec<(usize, usize)>>>(&self, arg: A, const_value: B::Dtype) -> Self {
+    pub fn slice<A: Into<Vec<(isize, isize)>>>(&self, arg: A, const_value: B::Dtype) -> Self {
         let arg = arg.into();
         let self_shape = self.shape();
         let padding: Vec<(usize, usize)> = arg.iter().enumerate().map(|(i, p)|
-            (0, 0.max(if p.1 >= self_shape[i] { p.1 - self_shape[i] } else { 0 }))
+            (0.max(p.0) as usize, 0.max(p.1 - self_shape[i] as isize) as usize)
         ).collect();
         let shrink: Vec<(usize, usize)> = arg.iter().enumerate().map(|(i, p)|
-            (p.0 + padding[i].0, p.1 + padding[i].0)
+            (p.0 as usize + padding[i].0, p.1 as usize + padding[i].0)
         ).collect();
         self.pad(padding, const_value).shrink(shrink)
     }
+
+    pub fn conv2d(
+        &self,
+        weigth: &Self,
+        bias: Option<&Self>,
+        groups: usize,
+        stride: usize,
+        dilation: usize,
+        padding: usize,
+    ) -> Self {
+        let [bs, cin_] = self.shape().dims[..2] else {
+            panic!()
+        };
+        let [cout, cin] = weigth.shape().dims[..2] else {
+            panic!()
+        };
+        let HW = weigth.shape().dims[2..].to_vec();
+        let mut padding_ = vec![padding; 2 * HW.len()];
+        let mut x =
+            self.pad2d(padding_, B::Dtype::zero())
+                ._pool(Shape::from(HW.clone()), stride, dilation);
+        let rcout = cout / groups;
+        let oyx = x.shape().dims[2..x.shape().len() - HW.len()].to_vec();
+        //reshape(bs, groups, cin, 1, *oyx, *HW)
+        let mut rsh_tmp = vec![bs, groups, cin, 1];
+        rsh_tmp.extend(oyx.iter());
+        rsh_tmp.extend(HW.iter());
+        //expand(bs, groups, cin, rcout, *oyx, *HW)
+        let mut exp_tmp = vec![bs, groups, cin, rcout];
+        exp_tmp.extend(oyx.iter());
+        exp_tmp.extend(HW.iter());
+        //permute(0,1,3,*[4+i for i in range(len(oyx))],2,*[4+len(oyx)+i for i in range(len(HW))])
+        let mut permute_tmp = vec![0, 1, 3];
+        permute_tmp.extend((0..oyx.len()).into_iter().map(|i| 4 + i));
+        permute_tmp.push(2);
+        permute_tmp.extend((0..HW.len()).into_iter().map(|i| 4 + oyx.len() + i));
+        x = x.reshape(rsh_tmp).expand(exp_tmp).permute(permute_tmp);
+        // ret = (x * weight.reshape(1, groups, rcout, *[1] * len(oyx), cin, *HW)).sum([-1-i for i in range(1+len(oyx))], keepdim=True).reshape(bs, cout, *oyx)
+        let mut w_rsh_tmp = vec![1, groups, rcout];
+        w_rsh_tmp.extend(vec![1; oyx.len()]);
+        w_rsh_tmp.push(cin);
+        w_rsh_tmp.extend(HW.iter());
+        let mut ret = x * weigth.reshape(w_rsh_tmp);
+        for i in 0..oyx.len() + 1 {
+            let reduce_i = -1 - (i as isize);
+            ret = ret.sum_keepdim(reduce_i);
+        }
+        let mut ret_rsh_tmp = vec![bs, cout];
+        ret_rsh_tmp.extend(oyx.iter());
+        ret = ret.reshape(ret_rsh_tmp);
+        if bias.is_none() {
+            return ret;
+        }
+        // bias.reshape(1, -1, *[1] * len(HW))
+        let bias = bias.unwrap();
+        let mut b_rsh_tmp = vec![1, bias.shape().len()];
+        b_rsh_tmp.extend(vec![1; HW.len()]);
+        ret + bias.reshape(b_rsh_tmp)
+    }
+
+    pub fn t(&self) -> Self {
+        self.transpose(1, 0)
+    }
 }
+
+//TODO: Tests should be in a macro so that each backend can generate test.
 
 #[test]
 fn sum_axis() {
@@ -418,6 +511,24 @@ fn pool() {
         [n, n, n],
     );
     let k = Shape::from([3, 3]);
-    let stride = Shape::from(vec![1; k.len()]);
-    let t = a._pool(k, stride, 1);
+    let t = a._pool(k, 1, 1);
+    println!("{t:?}");
+}
+
+#[test]
+fn conv2d() {
+    let mut a = Tensor::<Cpu>::from_vec(
+        (1..=9 * 9)
+            .map(|e| f32::from_usize(e).unwrap())
+            .collect::<Vec<f32>>(),
+        [1, 1, 9, 9],
+    );
+    let mut b = Tensor::<Cpu>::from_vec(
+        (1..=3 * 3)
+            .map(|e| f32::from_usize(e).unwrap())
+            .collect::<Vec<f32>>(),
+        [1, 1, 3, 3],
+    );
+    let r = a.conv2d(&b, None, 1, 1, 1, 0);
+    println!("{r:?}");
 }

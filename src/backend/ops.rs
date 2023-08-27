@@ -148,7 +148,7 @@ impl<B: Backend> Function<B> for Sum<B> {
             .zip(self.input_shape.dims.iter())
             .position(|(&x, &sh)| x != sh)
             .unwrap();
-        x.sum(Some(sum_axis as isize))
+        x.sum(Some(sum_axis as isize), false)
     }
 
     fn backward(&mut self, mut grad: B) -> Grad<B> {
@@ -182,7 +182,7 @@ impl<B: Backend> Function<B> for Max<B> {
             .zip(grad.shape().dims.iter())
             .position(|(&x, &sh)| x != sh)
             .unwrap();
-        let div = max_is_1s.sum(Some(sum_axis as isize)).expand(self.x.shape());
+        let div = max_is_1s.sum(Some(sum_axis as isize), false).expand(self.x.shape());
         Grad::Max(max_is_1s.div(&div).mul(&grad.expand(self.x.shape())))
     }
 }

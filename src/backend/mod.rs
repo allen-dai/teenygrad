@@ -32,7 +32,7 @@ pub trait Backend: 'static + core::fmt::Debug + Clone + Send + Sync {
     fn sqrt(&self) -> Self;
 
     // reduce
-    fn sum(&self, axis: Option<isize>) -> Self;
+    fn sum(&self, axis: Option<isize>, keepdim: bool) -> Self;
     fn max(&self) -> Self;
 
     // movement
