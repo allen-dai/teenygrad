@@ -7,6 +7,23 @@ impl<B: Backend> core::fmt::Debug for Tensor<B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
+            "\n{:?}Shape:{:?} Stride:{:?} Dtype:{} Device:{} Id:{:?} grad:{:?}\nctx:{:?}\n",
+            self.inner,
+            self.inner.shape(),
+            self.inner.stride(),
+            self.dtype(),
+            self.device(),
+            self.id,
+            self.grad,
+            self._ctx,
+        )
+    }
+}
+
+impl<B: Backend> core::fmt::Display for Tensor<B> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
             "\n{:?}Shape:{:?} Stride:{:?} Dtype:{} Device:{}\n",
             self.inner,
             self.inner.shape(),

@@ -572,6 +572,7 @@ impl<B: Backend> Tensor<B> {
         let mut ret = Vec::new();
         let mut visisted = HashSet::new();
         Self::_deepwalk(self, &mut visisted, &mut ret);
+        //println!("{ret:?}");
         ret
     }
 
@@ -581,12 +582,13 @@ impl<B: Backend> Tensor<B> {
             return;
         }
 
-        for (k, n) in node._ctx.as_ref().unwrap().ctx().parents.iter() {
+        for (k, n) in node._ctx.as_ref().unwrap().ctx().iter() {
             if !visisted.contains(k) {
                 Self::_deepwalk(n, visisted, ret);
             }
-            ret.push(node.clone())
         }
+        println!("{:?}", node.id);
+        ret.push(node.clone())
     }
 
     pub fn backward(&mut self) {
@@ -597,10 +599,11 @@ impl<B: Backend> Tensor<B> {
         );
         self.grad = Some(Box::new(Self::ones([1])));
         for mut t0 in self.deepwalk().into_iter().rev() {
+            // println!("---{:?} {:?}",t0.id, t0.grad);
             let grads = match t0._ctx.as_mut().unwrap().backward(
                 t0.grad
                     .as_ref()
-                    .expect("This should have a grad")
+                    .expect("t0 should have a grad")
                     .inner
                     .clone(),
             ) {
@@ -639,7 +642,6 @@ impl<B: Backend> Tensor<B> {
                 .as_mut()
                 .unwrap()
                 .ctx_mut()
-                .parents
                 .values_mut()
                 .zip(grads.iter())
             {
@@ -817,7 +819,7 @@ fn pool() {
             59., 60., 61., 68., 69., 70., 77., 78., 79., 60., 61., 62., 69., 70., 71., 78., 79.,
             80., 61., 62., 63., 70., 71., 72., 79., 80., 81.
         ] == y.to_vec(),
-        "{y:?}"
+        "{y}"
     );
 }
 
@@ -877,7 +879,7 @@ fn conv2d() {
             5371434., 5432184., 5735934., 5796684., 13445838., 13598442., 14361462., 14514066.,
             21520242., 21764700., 22986990., 23231448.
         ] == r.to_vec(),
-        "{r:?}"
+        "{r}"
     );
 }
 //

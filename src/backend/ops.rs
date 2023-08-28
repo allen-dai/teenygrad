@@ -15,19 +15,26 @@ pub fn argsort<V: Into<Vec<usize>>>(shape: V) -> Vec<usize> {
     out
 }
 
-// TODO: Might need a better name for this, this can be confusing when accessing it from tensor
-// i.e tensor._ctx.unwrap().ctx().parents
-// Also might need to wrap this in a smart pointer, in case needing it outside of "Function".
 #[derive(Debug, Clone)]
-pub struct Ctx<B: Backend> {
-    pub(crate) parents: HashMap<TensorId, Tensor<B>>,
-}
+pub struct Ctx<B: Backend>(pub(crate) HashMap<TensorId, Tensor<B>>);
 
 impl<B: Backend> Default for Ctx<B> {
     fn default() -> Self {
-        Self {
-            parents: HashMap::new(),
-        }
+        Self(HashMap::new())
+    }
+}
+
+impl<B: Backend> core::ops::Deref for Ctx<B> {
+    type Target = HashMap<TensorId, Tensor<B>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<B: Backend> core::ops::DerefMut for Ctx<B> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
@@ -43,7 +50,7 @@ pub trait Function<B: Backend>: DynClone + core::fmt::Debug {
         let inner = self.forward(&x.inner, shape, y.as_ref());
         let require_grad = x.require_grad;
         if require_grad {
-            self.ctx_mut().parents.insert(x.id, x.clone());
+            self.ctx_mut().insert(x.id, x.clone());
         }
         Tensor {
             inner,
@@ -53,7 +60,7 @@ pub trait Function<B: Backend>: DynClone + core::fmt::Debug {
             } else {
                 None
             },
-            id: tensor_id(),
+            id: x.id,
             grad: None,
         }
     }
@@ -782,7 +789,8 @@ impl<B: Backend> Function<B> for Permute<B> {
 fn test_ctx() {
     let mut o = Tensor::<Cpu>::randn([3, 3]);
     o.require_grad = true;
-    let mut t = o.sum_all();
+    let mut t = ((&o + 100.0) * -24.0).sum_all();
     t.backward();
+    println!("{:?}", t.grad);
     // TODO: this is just checking backward, need better test
 }
