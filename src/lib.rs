@@ -11,8 +11,10 @@ lazy_static::lazy_static! {
             Arc::new(Mutex::new(StdRng::seed_from_u64(time as u64)))
     };
 }
+
 pub mod backend;
 pub mod tensor;
+pub mod optim;
 
 pub mod prelude {
     pub use rand::prelude::*;
@@ -22,6 +24,7 @@ pub mod prelude {
     pub use rand_distr::Standard;
     pub use num_traits::{FromPrimitive, ToPrimitive, Zero, One};
     pub use crate::backend::Backend;
+    pub use crate::optim::{Optimizer, Adam};
 }
 
 use prelude::*;

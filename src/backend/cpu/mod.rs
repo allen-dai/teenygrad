@@ -34,11 +34,12 @@ impl<T: Dtype> core::fmt::Debug for Cpu<T> {
                 write!(f, "\n");
             }
 
-            if self.shape.len() >= 2 && (i + 1)
-                % self.shape.dims[self.shape.len() - 2..]
-                    .iter()
-                    .product::<usize>()
-                == 0
+            if self.shape.len() >= 2
+                && (i + 1)
+                    % self.shape.dims[self.shape.len() - 2..]
+                        .iter()
+                        .product::<usize>()
+                    == 0
             {
                 write!(f, "\n");
             }
@@ -117,7 +118,7 @@ impl<T: Dtype> Backend for Cpu<T> {
     fn add(&self, rhs: &Self) -> Self {
         assert!(
             self.shape.numel() == rhs.shape.numel(),
-            "Addd op: Did you forgot to broadcast shape?"
+            "Addd op: Did you forget to broadcast shape?"
         );
         Cpu {
             buffer: Arc::new(CpuBuffer(
@@ -133,7 +134,7 @@ impl<T: Dtype> Backend for Cpu<T> {
     fn sub(&self, rhs: &Self) -> Self {
         assert!(
             self.shape.numel() == rhs.shape.numel(),
-            "Sub op: Did you forgot to broadcast shape?"
+            "Sub op: Did you forget to broadcast shape?"
         );
         Cpu {
             buffer: Arc::new(CpuBuffer(
@@ -149,7 +150,7 @@ impl<T: Dtype> Backend for Cpu<T> {
     fn mul(&self, rhs: &Self) -> Self {
         assert!(
             self.shape.numel() == rhs.shape.numel(),
-            "Mul op: Did you forgot to broadcast shape?"
+            "Mul op: Did you forget to broadcast shape?"
         );
         Cpu {
             buffer: Arc::new(CpuBuffer(
@@ -165,7 +166,9 @@ impl<T: Dtype> Backend for Cpu<T> {
     fn div(&self, rhs: &Self) -> Self {
         assert!(
             self.shape.numel() == rhs.shape.numel(),
-            "Div op: Did you forgot to broadcast shape? lhs:{} rhs: {}", self.shape, rhs.shape
+            "Div op: Did you forget to broadcast shape? lhs:{} rhs: {}",
+            self.shape,
+            rhs.shape
         );
         Cpu {
             buffer: Arc::new(CpuBuffer(
@@ -210,9 +213,9 @@ impl<T: Dtype> Backend for Cpu<T> {
                 (0..self.shape.numel())
                     .map(|i| {
                         if self.buffer.0[self.row_i(i)] < rhs.buffer.0[rhs.row_i(i)] {
-                            self.buffer.0[self.row_i(i)]
+                            T::one()
                         } else {
-                            rhs.buffer.0[rhs.row_i(i)]
+                            T::zero()
                         }
                     })
                     .collect(),
@@ -325,18 +328,92 @@ impl<T: Dtype> Backend for Cpu<T> {
         out
     }
 
-    fn max(&self) -> Self {
+    fn max(&self, _axis: Option<isize>, keepdim: bool) -> Self {
+        if _axis.is_none() {
+            return Cpu {
+                buffer: Arc::new(CpuBuffer(
+                    vec![*self
+                        .buffer
+                        .0
+                        .iter()
+                        .reduce(|acc, e| if acc > e { acc } else { e })
+                        .unwrap()]
+                    .into(),
+                )),
+                shape: Shape::from([1]),
+                stride: Shape::from([1]),
+            };
+        }
+        let _axis = _axis.unwrap();
+        let mut axis = if _axis < 0 {
+            (self.shape.len() as isize + _axis) as usize
+        } else {
+            _axis as usize
+        };
+        let mut new_shape = self.shape().clone();
+        new_shape.dims.remove(axis);
+        let mut out = Self::empty(&new_shape).const_like(T::zero());
+        let numel_of_reduce_dim = if axis == self.shape.len() - 1 {
+            *self.shape.dims.last().unwrap()
+        } else {
+            self.shape.dims[axis + 1..].iter().product::<usize>()
+        };
+        let mut dim_reduced = 0;
+        let mut base = 0;
+        let mut idx = 0;
+        for i in 0..self.shape().numel() {
+            if axis < self.shape.len() - 1 {
+                if idx - base >= numel_of_reduce_dim {
+                    idx = base;
+                    dim_reduced += 1;
+                };
+                if dim_reduced == self.shape[axis] {
+                    dim_reduced = 0;
+                    base += numel_of_reduce_dim;
+                    idx = base;
+                }
+                out[idx] = out[idx].max(self.buffer.0[self.row_i(i)]);
+                idx += 1;
+            } else {
+                out[idx] = out[idx].max(self.buffer.0[self.row_i(i)]);
+                if (i + 1) % numel_of_reduce_dim == 0 {
+                    idx += 1;
+                }
+            }
+        }
+        if keepdim {
+            let mut keepdim_shape = self.shape.clone();
+            keepdim_shape[axis] = 1;
+            out = out.reshape(keepdim_shape.clone());
+        }
+        out
+    }
+
+    fn _where(&self, x: &Self, y: &Self) -> Self {
+        assert!(
+            self.shape.numel() == x.shape.numel() || x.shape.numel() == y.shape.numel(),
+            "where op: Did you forget to broadcast shape? self:{} x:{} y:{}",
+            self.shape,
+            x.shape,
+            y.shape
+        );
         Cpu {
             buffer: Arc::new(CpuBuffer(
-                vec![self
-                    .buffer
-                    .0
-                    .iter()
-                    .fold(T::min_value(), |acc, e| if acc > *e { acc } else { *e })]
-                .into(),
+                (0..self.shape.numel())
+                    .map(|i| {
+                        let ss = self.buffer.0[self.row_i(i)];
+                        let xx = y.buffer.0[y.row_i(i)];
+                        let yy = x.buffer.0[x.row_i(i)];
+                        if ss == T::one() {
+                            xx
+                        } else {
+                            yy
+                        }
+                    })
+                    .collect(),
             )),
-            shape: Shape::from([1]),
-            stride: Shape::from([1]),
+            shape: self.shape.clone(),
+            stride: self.shape.strides(),
         }
     }
 
@@ -538,7 +615,7 @@ impl<T: Dtype> Backend for Cpu<T> {
         self.shape.clone()
     }
 
-    fn stride(&self) -> Shape {
+    fn strides(&self) -> Shape {
         self.stride.clone()
     }
 

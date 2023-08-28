@@ -81,6 +81,56 @@ impl core::ops::IndexMut<usize> for Shape {
     }
 }
 
+
+impl Index<isize> for Shape {
+    type Output = usize;
+
+    fn index(&self, index: isize) -> &Self::Output {
+        let index = if index < 0 {
+            (self.len() as isize + index) as usize
+        } else {
+            index as usize
+        };
+        &self.dims[index]
+    }
+}
+
+impl core::ops::IndexMut<isize> for Shape {
+    fn index_mut(&mut self, index: isize) -> &mut Self::Output {
+        let index = if index < 0 {
+            (self.len() as isize + index) as usize
+        } else {
+            index as usize
+        };
+        &mut self.dims[index]
+    }
+}
+
+
+impl Index<i32> for Shape {
+    type Output = usize;
+
+    fn index(&self, index: i32) -> &Self::Output {
+        let index = if index < 0 {
+            (self.len() as i32 + index) as usize
+        } else {
+            index as usize
+        };
+        &self.dims[index]
+    }
+}
+
+impl core::ops::IndexMut<i32> for Shape {
+    fn index_mut(&mut self, index: i32) -> &mut Self::Output {
+        let index = if index < 0 {
+            (self.len() as i32 + index) as usize
+        } else {
+            index as usize
+        };
+        &mut self.dims[index]
+    }
+}
+
 impl core::fmt::Display for Shape {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{:?}", self.dims)

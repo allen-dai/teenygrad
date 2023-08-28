@@ -33,7 +33,10 @@ pub trait Backend: 'static + core::fmt::Debug + Clone + Send + Sync {
 
     // reduce
     fn sum(&self, axis: Option<isize>, keepdim: bool) -> Self;
-    fn max(&self) -> Self;
+    fn max(&self, axis: Option<isize>, keepdim: bool) -> Self;
+
+    // Ternary
+    fn _where(&self, x: &Self, y: &Self) -> Self;
 
     // movement
     fn permute<S: Into<Shape>>(&self, permute: S) -> Self;
@@ -43,7 +46,7 @@ pub trait Backend: 'static + core::fmt::Debug + Clone + Send + Sync {
     fn pad<A: Into<Vec<(usize, usize)>>>(&self, arg: A, const_value: Self::Dtype) -> Self;
 
     fn shape(&self) -> Shape;
-    fn stride(&self) -> Shape;
+    fn strides(&self) -> Shape;
 
     fn contiguous(&self) -> Self;
     // fn slice(buffer: &Self, s: usize, e: usize) -> &[Self::Dtype];
@@ -54,7 +57,7 @@ pub trait Backend: 'static + core::fmt::Debug + Clone + Send + Sync {
 
     fn col_i(&self, mut idx: usize) -> usize {
         let mut out = 0;
-        for (sh, st) in self.shape().dims.iter().zip(self.stride().dims.iter()) {
+        for (sh, st) in self.shape().dims.iter().zip(self.strides().dims.iter()) {
             out += (idx % sh) * *st;
             idx /= sh;
         }
@@ -67,7 +70,7 @@ pub trait Backend: 'static + core::fmt::Debug + Clone + Send + Sync {
             .shape()
             .dims
             .iter()
-            .zip(self.stride().dims.iter())
+            .zip(self.strides().dims.iter())
             .rev()
         {
             out += (idx % sh) * *st;

@@ -7,13 +7,14 @@ impl<B: Backend> core::fmt::Debug for Tensor<B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "\n{:?}Shape:{:?} Stride:{:?} Dtype:{} Device:{} Id:{:?} grad:{:?}\nctx:{:?}\n",
+            "\n{:?}Shape:{:?} Stride:{:?} Dtype:{} Device:{} Id:{:?} require_grad:{} grad:{:?}\nctx:{:?}\n",
             self.inner,
             self.inner.shape(),
-            self.inner.stride(),
+            self.inner.strides(),
             self.dtype(),
             self.device(),
-            self.id,
+            self.id.0,
+            self.require_grad,
             self.grad,
             self._ctx,
         )
@@ -27,7 +28,7 @@ impl<B: Backend> core::fmt::Display for Tensor<B> {
             "\n{:?}Shape:{:?} Stride:{:?} Dtype:{} Device:{}\n",
             self.inner,
             self.inner.shape(),
-            self.inner.stride(),
+            self.inner.strides(),
             self.dtype(),
             self.device(),
         )
@@ -46,7 +47,7 @@ impl<B: Backend> core::ops::Add for &Tensor<B> {
     type Output = Tensor<B>;
 
     fn add(self, rhs: Self) -> Self::Output {
-        Tensor::_add(&self, &rhs)
+        Tensor::_add(self, rhs)
     }
 }
 
@@ -70,7 +71,19 @@ impl<B: Backend, F: num_traits::Float> core::ops::Add<F> for &Tensor<B> {
             [B::Dtype::from_f64(rhs.to_f64().unwrap()).unwrap()],
             Shape::from([1]),
         );
-        Tensor::_add(&self, &rhs)
+        Tensor::_add(self, &rhs)
+    }
+}
+
+impl<B: Backend, F: num_traits::Float> core::ops::Add<F> for &mut Tensor<B> {
+    type Output = Tensor<B>;
+
+    fn add(self, rhs: F) -> Self::Output {
+        let rhs = Tensor::from_vec(
+            [B::Dtype::from_f64(rhs.to_f64().unwrap()).unwrap()],
+            Shape::from([1]),
+        );
+        Tensor::_add(self, &rhs)
     }
 }
 
@@ -110,7 +123,20 @@ impl<B: Backend, F: num_traits::Float> core::ops::Sub<F> for &Tensor<B> {
             [B::Dtype::from_f64(rhs.to_f64().unwrap()).unwrap()],
             Shape::from([1]),
         );
-        Tensor::_sub(&self, &rhs)
+        Tensor::_sub(self, &rhs)
+    }
+}
+
+
+impl<B: Backend, F: num_traits::Float> core::ops::Sub<F> for &mut Tensor<B> {
+    type Output = Tensor<B>;
+
+    fn sub(self, rhs: F) -> Self::Output {
+        let rhs = Tensor::from_vec(
+            [B::Dtype::from_f64(rhs.to_f64().unwrap()).unwrap()],
+            Shape::from([1]),
+        );
+        Tensor::_sub(self, &rhs)
     }
 }
 
@@ -126,7 +152,7 @@ impl<B: Backend> core::ops::Mul for &Tensor<B> {
     type Output = Tensor<B>;
 
     fn mul(self, rhs: Self) -> Self::Output {
-        Tensor::_mul(&self, &rhs)
+        Tensor::_mul(self, rhs)
     }
 }
 
@@ -150,7 +176,19 @@ impl<B: Backend, F: num_traits::Float> core::ops::Mul<F> for &Tensor<B> {
             [B::Dtype::from_f64(rhs.to_f64().unwrap()).unwrap()],
             Shape::from([1]),
         );
-        Tensor::_mul(&self, &rhs)
+        Tensor::_mul(self, &rhs)
+    }
+}
+
+impl<B: Backend, F: num_traits::Float> core::ops::Mul<F> for &mut Tensor<B> {
+    type Output = Tensor<B>;
+
+    fn mul(self, rhs: F) -> Self::Output {
+        let rhs = Tensor::from_vec(
+            [B::Dtype::from_f64(rhs.to_f64().unwrap()).unwrap()],
+            Shape::from([1]),
+        );
+        Tensor::_mul(self, &rhs)
     }
 }
 
@@ -166,7 +204,7 @@ impl<B: Backend> core::ops::Div for &Tensor<B> {
     type Output = Tensor<B>;
 
     fn div(self, rhs: Self) -> Self::Output {
-        Tensor::_div(&self, &rhs)
+        Tensor::_div(self, rhs)
     }
 }
 
@@ -190,7 +228,19 @@ impl<B: Backend, F: num_traits::Float> core::ops::Div<F> for &Tensor<B> {
             [B::Dtype::from_f64(rhs.to_f64().unwrap()).unwrap()],
             Shape::from([1]),
         );
-        Tensor::_div(&self, &rhs)
+        Tensor::_div(self, &rhs)
+    }
+}
+
+impl<B: Backend, F: num_traits::Float> core::ops::Div<F> for &mut Tensor<B> {
+    type Output = Tensor<B>;
+
+    fn div(self, rhs: F) -> Self::Output {
+        let rhs = Tensor::from_vec(
+            [B::Dtype::from_f64(rhs.to_f64().unwrap()).unwrap()],
+            Shape::from([1]),
+        );
+        Tensor::_div(self, &rhs)
     }
 }
 
