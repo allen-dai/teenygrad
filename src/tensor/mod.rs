@@ -284,7 +284,7 @@ impl<B: Backend> Tensor<B> {
         self.sin() / self.cos()
     }
 
-    pub fn sum_keepdim(&self,axis: isize) -> Self {
+    pub fn sum_keepdim(&self, axis: isize) -> Self {
         let axis = if axis < 0 {
             (self.shape().len() as isize + axis) as usize
         } else {
@@ -294,7 +294,6 @@ impl<B: Backend> Tensor<B> {
         shape.dims.push(axis);
         Sum::default().apply(&self, None, None, Some(shape), None)
     }
-
 
     pub fn sum(&self, axis: isize) -> Self {
         let mut shape = self.shape().clone();
@@ -699,9 +698,14 @@ impl<B: Backend> Tensor<B> {
                 })],
                 Grad::Two(mut g1, mut g2) => {
                     let mut out = vec![];
-                    out.push(if let Some(g) = g1.take() {
+                    out.push(if let Some(g) = g1.as_ref() {
+                        // if g.to_vec().iter().any(|n| n.is_nan()) {
+                        //     panic!("g has NaN")
+                        // } else {
+                        //     println!("{:?}", g);
+                        // }
                         Some(Tensor {
-                            inner: g,
+                            inner: g.clone(),
                             require_grad: false,
                             grad: Arc::default(),
                             _ctx: None,
@@ -710,9 +714,14 @@ impl<B: Backend> Tensor<B> {
                     } else {
                         None
                     });
-                    out.push(if let Some(g) = g2.take() {
+                    out.push(if let Some(g) = g2.as_ref() {
+                        // if g.to_vec().iter().any(|n| n.is_nan()) {
+                        //     panic!("g has NaN")
+                        // } else {
+                        //     println!("{:?}", g);
+                        // }
                         Some(Tensor {
-                            inner: g,
+                            inner: g.clone(),
                             require_grad: false,
                             grad: Arc::default(),
                             _ctx: None,
@@ -724,6 +733,7 @@ impl<B: Backend> Tensor<B> {
                     out
                 }
             };
+            assert!(t0._ctx.as_ref().unwrap().parents_ref().len() == grads.len());
             for (t, g) in t0
                 ._ctx
                 .as_mut()
@@ -748,6 +758,17 @@ impl<B: Backend> Tensor<B> {
                 } else {
                     *t_grad = Some(g + (*t_grad).as_ref().unwrap());
                 }
+                // if (*t_grad)
+                //     .as_ref()
+                //     .unwrap()
+                //     .to_vec()
+                //     .iter()
+                //     .any(|n| n.is_nan())
+                // {
+                //     panic!("g has NaN")
+                // } else {
+                //     println!("{:?}", g);
+                // }
             }
             t0._ctx = None;
         }
@@ -1132,6 +1153,10 @@ fn lt() {
     let y = Tensor::<Cpu>::from_vec([0., 2., 0., 4., 0.], [5]);
     let o = x._lt(&y);
     assert!(vec![0., 0., 0., 0., 0.] == o.to_vec());
+    let x = Tensor::<Cpu>::from_vec([1., 0., 3., 0., 5.], [5]);
+    let y = Tensor::<Cpu>::from_vec([0., 2., 0., 4., 0.], [5]);
+    let o = x._lt(&y);
+    assert!(vec![0., 1., 0., 1., 0.] == o.to_vec());
 }
 
 #[test]
@@ -1160,22 +1185,30 @@ fn test_softmax() {
 }
 
 #[test]
-fn tree_walk() {
-    let mut a = Tensor::<Cpu>::randn([3, 3]);
-    let mut b = Tensor::<Cpu>::randn([3, 3]);
-    let mut y = Tensor::<Cpu>::randn([3, 3]);
-    let mut c = (&a._eq(&b)).sparse_categorical_crossentropy(&y);
-    c.backward();
-}
-
-#[test]
 fn max_test() {
     let x = Tensor::<Cpu>::from_vec(
         (1..=3 * 3 * 3)
             .into_iter()
             .map(|e| e as f32)
             .collect::<Vec<f32>>(),
-        [3*3*3],
+        [3 * 3 * 3],
     )
     .reshape([3, 3, 3]);
+    let y = (x * -1.);
+    assert!(vec![-1.0] == y.max_all().to_vec(), "{:?}", y.inner)
+}
+
+#[test]
+fn test_scaled_uniform() {
+    let t = Tensor::<Cpu>::scaled_uniform([3, 3, 3]);
+    println!("{t:?}");
+}
+
+#[test]
+fn test_log() {
+    let mut y = Tensor::<Cpu>::from_vec([2.3], [1]);
+    y.require_grad = true;
+    let mut ylog = y.log();
+    ylog.backward();
+    println!("{:?}", y.grad);
 }

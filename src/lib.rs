@@ -13,18 +13,18 @@ lazy_static::lazy_static! {
 }
 
 pub mod backend;
-pub mod tensor;
 pub mod optim;
+pub mod tensor;
 
 pub mod prelude {
-    pub use rand::prelude::*;
-    pub use crate::tensor::{shape::Shape, dtype::Dtype, core_ops::*};
     pub use crate::backend::cpu::Cpu;
-    pub use crate::tensor::Tensor;
-    pub use rand_distr::Standard;
-    pub use num_traits::{FromPrimitive, ToPrimitive, Zero, One};
     pub use crate::backend::Backend;
-    pub use crate::optim::{Optimizer, Adam};
+    pub use crate::optim::{Adam, Optimizer};
+    pub use crate::tensor::Tensor;
+    pub use crate::tensor::{core_ops::*, dtype::Dtype, shape::Shape};
+    pub use num_traits::{Float, FromPrimitive, One, ToPrimitive, Zero};
+    pub use rand::prelude::*;
+    pub use rand_distr::Standard;
 }
 
 use prelude::*;

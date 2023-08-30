@@ -127,7 +127,6 @@ impl<B: Backend, F: num_traits::Float> core::ops::Sub<F> for &Tensor<B> {
     }
 }
 
-
 impl<B: Backend, F: num_traits::Float> core::ops::Sub<F> for &mut Tensor<B> {
     type Output = Tensor<B>;
 

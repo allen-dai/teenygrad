@@ -29,12 +29,15 @@ impl Shape {
     }
 
     pub fn strides(&self) -> Shape {
-        let mut dims = vec![1;self.dims.len()];
+        let mut dims = vec![1; self.dims.len()];
         let mut stride = 1;
-        dims.iter_mut().zip(self.dims.iter()).rev().for_each(|(st, sh)|{
-            *st = stride;
-            stride *= *sh
-        });
+        dims.iter_mut()
+            .zip(self.dims.iter())
+            .rev()
+            .for_each(|(st, sh)| {
+                *st = stride;
+                stride *= *sh
+            });
         Shape { dims }
     }
 
@@ -81,7 +84,6 @@ impl core::ops::IndexMut<usize> for Shape {
     }
 }
 
-
 impl Index<isize> for Shape {
     type Output = usize;
 
@@ -105,7 +107,6 @@ impl core::ops::IndexMut<isize> for Shape {
         &mut self.dims[index]
     }
 }
-
 
 impl Index<i32> for Shape {
     type Output = usize;

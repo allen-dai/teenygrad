@@ -1,5 +1,5 @@
 use half::{bf16, f16};
-use num_traits::{FromPrimitive, NumOps, One, ToPrimitive, Zero, Float};
+use num_traits::{Float, FromPrimitive, NumOps, One, ToPrimitive, Zero};
 
 pub trait Dtype:
     'static
@@ -51,13 +51,11 @@ macro_rules! df {
     };
 }
 
-
 macro_rules! di {
     ($t: expr) => {
         Dtype::from_isize($t).unwrap()
     };
 }
-
 
 macro_rules! du {
     ($t: expr) => {

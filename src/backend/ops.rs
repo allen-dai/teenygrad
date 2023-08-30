@@ -146,9 +146,13 @@ pub enum Grad<B: Backend> {
 // }
 
 macro_rules! df32 {
-    ($t: expr) => {
-        B::Dtype::from_f32($t).unwrap()
-    };
+    ($t: expr) => {{
+        let n = B::Dtype::from_f32($t).unwrap();
+        if n.is_nan() {
+            panic!("your number is a NaN")
+        }
+        n
+    }};
 }
 
 #[derive(Clone, Debug)]
@@ -352,7 +356,7 @@ impl<B: Backend> Function<B> for Sqrt<B> {
 
     fn backward(&mut self, grad: B) -> Grad<B> {
         let ret = self.ret.as_ref().unwrap();
-        Grad::One(grad.div(&ret.mul(&ret.const_like(df32!(0.0f32)))))
+        Grad::One(grad.div(&ret.mul(&ret.const_like(df32!(2.0f32)))))
     }
 
     fn parents_mut(&mut self) -> &mut Ctx<B> {
@@ -403,7 +407,10 @@ impl<B: Backend> Function<B> for Sum<B> {
     }
 
     fn backward(&mut self, mut grad: B) -> Grad<B> {
-        let input_shape = self.input_shape.as_ref().expect("Sum bwd should have a input_shape");
+        let input_shape = self
+            .input_shape
+            .as_ref()
+            .expect("Sum bwd should have a input_shape");
         if input_shape.len() > grad.shape().len() {
             let mut new_grad_shape = grad.shape();
             for _ in 0..input_shape.len() - grad.shape().len() {
@@ -467,7 +474,10 @@ impl<B: Backend> Function<B> for Max<B> {
             (false, shape.dims.iter().position(|e| *e == 0).unwrap())
         };
         self.x = Some(x.clone());
-        self.ret = Some(x.max(Some(axis as isize), keepdim));
+        if !keepdim {
+            panic!("please use reshape to remove dim")
+        }
+        self.ret = Some(x.max(Some(axis as isize), true));
         self.ret.as_ref().unwrap().clone()
     }
 
@@ -477,18 +487,21 @@ impl<B: Backend> Function<B> for Max<B> {
         let max_is_1s = x_ref
             .const_like(df32!(1.0))
             .sub(&x_ref.cmplt(&ret_ref.expand(x_ref.shape())));
-        let sum_axis = max_is_1s
+        let mut div = max_is_1s.clone();
+        for (i, (msh, gsh)) in max_is_1s
             .shape()
             .dims
             .iter()
             .zip(grad.shape().dims.iter())
-            .position(|(&x, &sh)| x != sh)
-            .unwrap();
-        // div = max_is_1s.reduce_op(ReduceOps.SUM, grad_output.shape).expand(self.x.shape)
-        let div = max_is_1s
-            .sum(Some(sum_axis as isize), true)
-            .expand(x_ref.shape());
-        Grad::One(max_is_1s.div(&div).mul(&grad.expand(x_ref.shape())))
+            .enumerate()
+        {
+            if msh != gsh {
+                div = div.sum(Some(i as isize), true);
+            }
+        }
+        let div = div.expand(x_ref.shape());
+        let grad_ret = max_is_1s.div(&div).mul(&grad.expand(x_ref.shape()));
+        Grad::One(grad_ret)
     }
 
     fn parents_mut(&mut self) -> &mut Ctx<B> {
@@ -1221,10 +1234,101 @@ impl<B: Backend> Function<B> for Shrink<B> {
 }
 
 #[test]
-fn test_ctx() {
-    let mut o = Tensor::<Cpu>::randn([3, 3]);
-    o.require_grad = true;
-    let mut t = ((&o + 100.0) * -24.0).sum_all();
-    t.backward();
-    // TODO: this is just checking backward, need better test
+fn mlop_sin() {
+    todo!()
+}
+
+#[test]
+fn mlop_relu() {
+    todo!()
+}
+
+#[test]
+fn mlop_log() {
+    todo!()
+}
+
+#[test]
+fn mlop_exp() {
+    todo!()
+}
+
+#[test]
+fn mlop_sqrt() {
+    todo!()
+}
+
+#[test]
+fn mlop_sigmod() {
+    todo!()
+}
+
+#[test]
+fn mlop_sum() {
+    todo!()
+}
+
+#[test]
+fn mlop_max() {
+    todo!()
+}
+
+#[test]
+fn mlop_less() {
+    todo!()
+}
+
+#[test]
+fn mlop_add() {
+    todo!()
+}
+
+#[test]
+fn mlop_sub() {
+    todo!()
+}
+
+#[test]
+fn mlop_mul() {
+    todo!()
+}
+
+#[test]
+fn mlop_div() {
+    todo!()
+}
+
+#[test]
+fn mlop_where() {
+    todo!()
+}
+
+#[test]
+fn mlop_expand() {
+    todo!()
+}
+
+#[test]
+fn mlop_reshape() {
+    todo!()
+}
+
+#[test]
+fn mlop_permute() {
+    todo!()
+}
+
+#[test]
+fn mlop_pad() {
+    todo!()
+}
+
+#[test]
+fn mlop_shrink() {
+    todo!()
+}
+
+#[test]
+fn mlop_flip() {
+    todo!()
 }

@@ -29,7 +29,7 @@ impl<T: Dtype> core::fmt::Debug for Cpu<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for i in 0..self.shape.numel() {
             //write!(f, "{:<12?}", self_idx);
-            write!(f, "{:<14?}", self.buffer.0[self.row_i(i)]);
+            write!(f, "{:<10.4?}", self.buffer.0[self.row_i(i)]);
             if (i + 1) % self.shape[self.shape.len() - 1] == 0 {
                 write!(f, "\n");
             }
@@ -165,6 +165,10 @@ impl<T: Dtype> Backend for Cpu<T> {
 
     fn div(&self, rhs: &Self) -> Self {
         assert!(
+            (0..rhs.shape().numel()).any(|i| rhs[rhs.row_i(i)] != T::zero()),
+            "Can not div self by zero"
+        );
+        assert!(
             self.shape.numel() == rhs.shape.numel(),
             "Div op: Did you forget to broadcast shape? lhs:{} rhs: {}",
             self.shape,
@@ -229,7 +233,13 @@ impl<T: Dtype> Backend for Cpu<T> {
         Cpu {
             buffer: Arc::new(CpuBuffer(
                 (0..self.shape.numel())
-                    .map(|i| self.buffer.0[self.row_i(i)].log2())
+                    .map(|i| {
+                        let n = self.buffer.0[self.row_i(i)].log2();
+                        if n.is_nan() {
+                            panic!("yo log2() return a NaN")
+                        }
+                        n
+                    })
                     .collect(),
             )),
             shape: self.shape.clone(),
@@ -241,7 +251,13 @@ impl<T: Dtype> Backend for Cpu<T> {
         Cpu {
             buffer: Arc::new(CpuBuffer(
                 (0..self.shape.numel())
-                    .map(|i| self.buffer.0[self.row_i(i)].exp2())
+                    .map(|i| {
+                        let n = self.buffer.0[self.row_i(i)].exp2();
+                        if n.is_nan() {
+                            panic!("yo exp2() return a NaN")
+                        }
+                        n
+                    })
                     .collect(),
             )),
             shape: self.shape.clone(),
@@ -253,7 +269,13 @@ impl<T: Dtype> Backend for Cpu<T> {
         Cpu {
             buffer: Arc::new(CpuBuffer(
                 (0..self.shape.numel())
-                    .map(|i| self.buffer.0[self.row_i(i)].sin())
+                    .map(|i| {
+                        let n = self.buffer.0[self.row_i(i)].sin();
+                        if n.is_nan() {
+                            panic!("yo sin() return a NaN")
+                        }
+                        n
+                    })
                     .collect(),
             )),
             shape: self.shape.clone(),
@@ -265,7 +287,15 @@ impl<T: Dtype> Backend for Cpu<T> {
         Cpu {
             buffer: Arc::new(CpuBuffer(
                 (0..self.shape.numel())
-                    .map(|i| self.buffer.0[self.row_i(i)].sqrt())
+                    .map(|i| {
+                        let n = self.buffer.0[self.row_i(i)].sqrt();
+                        if n.is_nan() {
+                            //panic!("yo sqrt() return a NaN")
+                            T::zero()
+                        } else {
+                            n
+                        }
+                    })
                     .collect(),
             )),
             shape: self.shape.clone(),
@@ -352,7 +382,7 @@ impl<T: Dtype> Backend for Cpu<T> {
         };
         let mut new_shape = self.shape().clone();
         new_shape.dims.remove(axis);
-        let mut out = Self::empty(&new_shape).const_like(T::zero());
+        let mut out = Self::empty(&new_shape).const_like(T::min_value());
         let numel_of_reduce_dim = if axis == self.shape.len() - 1 {
             *self.shape.dims.last().unwrap()
         } else {
@@ -372,10 +402,10 @@ impl<T: Dtype> Backend for Cpu<T> {
                     base += numel_of_reduce_dim;
                     idx = base;
                 }
-                out[idx] = out[idx].max(self.buffer.0[self.row_i(i)]);
+                out[idx] = T::max(out[idx], self.buffer.0[self.row_i(i)]);
                 idx += 1;
             } else {
-                out[idx] = out[idx].max(self.buffer.0[self.row_i(i)]);
+                out[idx] = T::max(out[idx], self.buffer.0[self.row_i(i)]);
                 if (i + 1) % numel_of_reduce_dim == 0 {
                     idx += 1;
                 }
