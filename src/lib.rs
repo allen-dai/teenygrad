@@ -15,6 +15,7 @@ lazy_static::lazy_static! {
 pub mod backend;
 pub mod optim;
 pub mod tensor;
+pub mod util;
 
 pub mod prelude {
     pub use crate::backend::cpu::Cpu;
@@ -25,6 +26,8 @@ pub mod prelude {
     pub use num_traits::{Float, FromPrimitive, One, ToPrimitive, Zero};
     pub use rand::prelude::*;
     pub use rand_distr::Standard;
+    pub(crate) use crate::tensor::mlops::*;
+    pub(crate) use crate::util::approx_eq;
 }
 
 use prelude::*;

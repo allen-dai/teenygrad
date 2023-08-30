@@ -56,6 +56,19 @@ impl<B: Backend> core::ops::DerefMut for Ctx<B> {
 }
 
 pub trait Function<B: Backend>: DynClone + core::fmt::Debug {
+    fn type_name(&self) -> String {
+        let full_name = std::any::type_name::<Self>().to_string();
+        let splited: Vec<&str> = full_name.split(&['<', '>'][..]).collect();
+        let function = splited[0]
+            .split("::")
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>();
+        let backend = splited[1]
+            .split("::")
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>();
+        format!("{}<{}>", function.last().unwrap(), backend.last().unwrap())
+    }
     fn forward(
         &mut self,
         x: &B,
@@ -638,7 +651,7 @@ impl<B: Backend> Function<B> for Sub<B> {
 
     fn backward(&mut self, grad: B) -> Grad<B> {
         let x = if self.need_input_grad[0] {
-            Some(grad.const_like(df32!(0.0)).sub(&grad))
+            Some(grad.clone())
         } else {
             None
         };
@@ -1235,100 +1248,327 @@ impl<B: Backend> Function<B> for Shrink<B> {
 
 #[test]
 fn mlop_sin() {
-    todo!()
+    let mut t = Tensor::<Cpu>::from_vec([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    t.require_grad = true;
+    let mut x = t.sin();
+    approx_eq!(
+        x,
+        [
+            -0.841471,
+            0.9092974,
+            -0.14112,
+            -0.7568025,
+            0.9589243,
+            -0.2794155,
+            -0.6569866,
+            0.98935825,
+            -0.41211846
+        ]
+    );
+    x.sum_all().backward();
+    approx_eq!(
+        t.grad.lock().unwrap().as_ref().unwrap(),
+        [
+            0.54030222,
+            -0.41614679,
+            -0.9899925,
+            -0.65364379,
+            0.28366235,
+            0.96017021,
+            0.75390244,
+            -0.14549987,
+            -0.91113013
+        ]
+    );
 }
 
 #[test]
 fn mlop_relu() {
-    todo!()
+    let mut t = Tensor::<Cpu>::from_vec([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    t.require_grad = true;
+    let mut x = t.relu();
+
+    approx_eq!(x, [0., 2., 0., 4., 0., 6., 0., 8., 0.]);
+    x.sum_all().backward();
+    approx_eq!(
+        t.grad.lock().unwrap().as_ref().unwrap(),
+        [0., 1., 0., 1., 0., 1., 0., 1., 0.]
+    );
+
+    let mut t = Tensor::<Cpu>::from_vec([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    t.require_grad = true;
+    let mut x = (&t * -1.0).relu();
+    approx_eq!(x, [1., 0., 3., 0., 5., 0., 7., 0., 9.]);
+    x.sum_all().backward();
+    approx_eq!(
+        t.grad.lock().unwrap().as_ref().unwrap(),
+        [-1., 0., -1., 0., -1., 0., -1., 0., -1.]
+    );
 }
 
 #[test]
 fn mlop_log() {
-    todo!()
+    let mut t = Tensor::<Cpu>::from_vec([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], [3, 3]);
+    t.require_grad = true;
+    let mut x = t.log();
+    approx_eq!(
+        x,
+        [
+            0., 0.6931472, 1.0986123, 1.3862944, 1.6094378, 1.7917595, 1.9459102, 2.0794415,
+            2.1972246
+        ]
+    );
+    x.sum_all().backward();
+    approx_eq!(
+        t.grad.lock().unwrap().as_ref().unwrap(),
+        [1., 0.5, 0.33333333, 0.25, 0.2, 0.16666667, 0.14285714, 0.125, 0.11111111]
+    );
 }
 
 #[test]
 fn mlop_exp() {
-    todo!()
+    let mut t = Tensor::<Cpu>::from_vec([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    t.require_grad = true;
+    let mut x = t.exp();
+
+    approx_eq!(
+        x,
+        [
+            0.36787945,
+            7.3890557,
+            0.04978707,
+            54.5981315,
+            0.006737951,
+            403.42868,
+            0.00091188244,
+            2980.9558,
+            0.0001234099
+        ]
+    );
+    x.sum_all().backward();
+    approx_eq!(
+        t.grad.lock().unwrap().as_ref().unwrap(),
+        [
+            0.36787945,
+            7.38905573,
+            0.04978707,
+            54.59813835,
+            0.006737951,
+            403.42868042,
+            0.00091188244,
+            2980.95586367,
+            0.00012340993
+        ]
+    );
 }
 
 #[test]
 fn mlop_sqrt() {
-    todo!()
+    let mut t = Tensor::<Cpu>::from_vec([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], [3, 3]);
+    t.require_grad = true;
+    let mut x = t.sqrt();
+    approx_eq!(
+        x,
+        [1., 1.4142135, 1.7320508, 2., 2.236068, 2.4494898, 2.6457512, 2.828427, 3.]
+    );
+    x.sum_all().backward();
+    approx_eq!(
+        t.grad.lock().unwrap().as_ref().unwrap(),
+        [
+            0.5, 0.3535534, 0.28867514, 0.25, 0.22360679, 0.20412414, 0.18898224, 0.1767767,
+            0.16666667
+        ]
+    );
 }
 
 #[test]
-fn mlop_sigmod() {
-    todo!()
+fn mlop_sigmoid() {
+    let mut t = Tensor::<Cpu>::from_vec([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    t.require_grad = true;
+    let mut x = t.sigmoid();
+    approx_eq!(
+        x,
+        [
+            0.26894143,
+            0.880797,
+            0.04742588,
+            0.98201376,
+            0.0066928547,
+            0.9975274,
+            0.0009110517,
+            0.99966466,
+            0.0001233947
+        ]
+    );
+    x.sum_all().backward();
+    approx_eq!(
+        t.grad.lock().unwrap().as_ref().unwrap(),
+        [
+            0.19661194,
+            0.10499363,
+            0.04517666,
+            0.01766273,
+            0.00664806,
+            0.0024664658,
+            0.00091022166,
+            0.00033522327,
+            0.00012337948
+        ]
+    );
 }
 
 #[test]
 fn mlop_sum() {
-    todo!()
+    let mut t = Tensor::<Cpu>::from_vec(
+        [
+            0.26894143,
+            0.880797,
+            0.04742588,
+            0.98201376,
+            0.0066928547,
+            0.9975274,
+            0.0009110517,
+            0.99966466,
+            0.0001233947,
+        ],
+        [3, 3],
+    );
+    t.require_grad = true;
+    let mut x = t.sum_all();
+    approx_eq!(x, [4.184098]);
+    x.backward();
+    assert!(t.shape() == t.grad.lock().unwrap().as_ref().unwrap().shape());
+    approx_eq!(
+        t.grad.lock().unwrap().as_ref().unwrap(),
+        [1., 1., 1., 1., 1., 1., 1., 1., 1.]
+    );
 }
 
 #[test]
 fn mlop_max() {
-    todo!()
+    let mut t = Tensor::<Cpu>::from_vec([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    t.require_grad = true;
+    let mut x = t.max_all();
+    approx_eq!(x, [8.0]);
+    x.sum_all().backward();
+    approx_eq!(
+        t.grad.lock().unwrap().as_ref().unwrap(),
+        [0., 0., 0., 0., 0., 0., 0., 1., 0.]
+    );
+
+    let mut t = Tensor::<Cpu>::from_vec([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    t.require_grad = true;
+    let mut x = t.max(0);
+    approx_eq!(x, [4.0, 8.0, 6.0]);
+    x.sum_all().backward();
+    approx_eq!(
+        t.grad.lock().unwrap().as_ref().unwrap(),
+        [0., 0., 0., 1., 0., 1., 0., 1., 0.]
+    );
+
+    let mut t = Tensor::<Cpu>::from_vec([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    t.require_grad = true;
+    let mut x = t.max(1);
+    approx_eq!(x, [2.0, 6.0, 8.0]);
+    x.sum_all().backward();
+    approx_eq!(
+        t.grad.lock().unwrap().as_ref().unwrap(),
+        [0., 1., 0., 0., 0., 1., 0., 1., 0.]
+    );
+
+    let mut t = Tensor::<Cpu>::from_vec([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    t.require_grad = true;
+    let mut x = t.max(2);
+    approx_eq!(x, [-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0]);
+    x.sum_all().backward();
+    approx_eq!(
+        t.grad.lock().unwrap().as_ref().unwrap(),
+        [1., 1., 1., 1., 1., 1., 1., 1., 1.]
+    );
 }
 
 #[test]
 fn mlop_less() {
-    todo!()
+    let mut t = Tensor::<Cpu>::from_vec([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    let mut b = Tensor::<Cpu>::from_vec([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], [3, 3]);
+    let mut x = t._lt(&b);
+    approx_eq!(x, [1., 0., 1., 0., 1., 0., 1., 0., 1.]);
+    // less has no bwd pass
 }
 
 #[test]
 fn mlop_add() {
-    todo!()
+    let mut t = Tensor::<Cpu>::from_vec([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    let mut b = Tensor::<Cpu>::from_vec([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], [3, 3]);
+    t.require_grad = true;
+    b.require_grad = true;
+    let mut x = (&t + &b);
+    approx_eq!(x, [0., 4., 0., 8., 0., 12., 0., 16., 0.]);
+    x.sum_all().backward();
+    approx_eq!(
+        t.grad.lock().unwrap().as_ref().unwrap(),
+        [1., 1., 1., 1., 1., 1., 1., 1., 1.]
+    );
 }
 
 #[test]
 fn mlop_sub() {
-    todo!()
+    let mut t = Tensor::<Cpu>::from_vec([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    let mut b = Tensor::<Cpu>::from_vec([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], [3, 3]);
+    t.require_grad = true;
+    b.require_grad = true;
+    let mut x = (&t - &b);
+    approx_eq!(x, [-2., 0., -6., 0., -10., 0., -14., 0., -18.]);
+    x.sum_all().backward();
+    approx_eq!(
+        t.grad.lock().unwrap().as_ref().unwrap(),
+        [1., 1., 1., 1., 1., 1., 1., 1., 1.]
+    );
 }
 
-#[test]
-fn mlop_mul() {
-    todo!()
-}
-
-#[test]
-fn mlop_div() {
-    todo!()
-}
-
-#[test]
-fn mlop_where() {
-    todo!()
-}
-
-#[test]
-fn mlop_expand() {
-    todo!()
-}
-
-#[test]
-fn mlop_reshape() {
-    todo!()
-}
-
-#[test]
-fn mlop_permute() {
-    todo!()
-}
-
-#[test]
-fn mlop_pad() {
-    todo!()
-}
-
-#[test]
-fn mlop_shrink() {
-    todo!()
-}
-
-#[test]
-fn mlop_flip() {
-    todo!()
-}
+//TODO: Should be done as soon as possible
+//
+// #[test]
+// fn mlop_mul() {
+//     todo!()
+// }
+//
+// #[test]
+// fn mlop_div() {
+//     todo!()
+// }
+//
+// #[test]
+// fn mlop_where() {
+//     todo!()
+// }
+//
+// #[test]
+// fn mlop_expand() {
+//     todo!()
+// }
+//
+// #[test]
+// fn mlop_reshape() {
+//     todo!()
+// }
+//
+// #[test]
+// fn mlop_permute() {
+//     todo!()
+// }
+//
+// #[test]
+// fn mlop_pad() {
+//     todo!()
+// }
+//
+// #[test]
+// fn mlop_shrink() {
+//     todo!()
+// }
+//
+// #[test]
+// fn mlop_flip() {
+//     todo!()
+// }

@@ -62,7 +62,7 @@ impl<B: Backend> LAMP<B> {
                 .iter()
                 .map(|t| Tensor::zeros((**t).shape()))
                 .collect();
-            let ret = Self {
+            Self {
                 params,
                 buffers,
                 lr,
@@ -74,9 +74,7 @@ impl<B: Backend> LAMP<B> {
                 t: 0.,
                 m,
                 v,
-            };
-            //println!("{:?}", ret);
-            ret
+            }
         }
     }
 }
@@ -103,25 +101,22 @@ impl<B: Backend> Optimizer for LAMP<B> {
                 assert!(t.grad.lock().unwrap().is_some());
                 let g = (*t.grad.lock().unwrap()).clone();
                 let mut g = g.unwrap();
-                // self.m[i].assign(self.b1 * self.m[i] + (1.0 - self.b1) * g).realize()
-                let mi = self.m[i].clone();
-                self.m[i].assign(mi * self.b1 + &g * (1.0 - self.b1));
-                // self.v[i].assign(self.b2 * self.v[i] + (1.0 - self.b2) * (g * g)).realize()
-                let b2v = &self.v[i] * self.b2;
-                let g2 = (&g * &g) * (1.0 - self.b2);
-                self.v[i].assign(b2v + g2);
+
+                // self.m[i].assign(self.m[i] * self.b1 + g * (1.0 - self.b1)).realize()
+                // self.v[i].assign(self.v[i] * self.b2 + (g * g) * (1.0 - self.b2)).realize()
+                self.m[i] = (&self.m[i] * self.b1 + &g * (1.0 - self.b1));
+                self.v[i] = &self.v[i] * self.b2 + (&g * &g) * (1.0 - self.b2);
                 // m_hat = self.m[i] / (1.0 - self.b1**self.t)
                 let m_hat = &self.m[i] / (1.0 - self.b1.powf(self.t));
-                // println!("m_hat {:?}", m_hat.inner);
                 // v_hat = self.v[i] / (1.0 - self.b2**self.t)
                 let v_hat = &self.v[i] / (1.0 - self.b2.powf(self.t));
-                // println!("v_hat {:?}", v_hat.inner);
                 // up = (m_hat / (v_hat.sqrt() + self.eps)) + self.wd * t.detach()
-                let up = (m_hat / (v_hat.sqrt() + self.eps)) + &*t * self.wd;
+                let up = (m_hat / (v_hat.sqrt() + self.eps)) + t.detach() * self.wd;
                 let r = if !self.adam { todo!() } else { 1.0 };
-                t.assign(&*t - &(&self.lr * r * up));
+                t.assign(&t.detach() - &(&self.lr * r * up));
 
-                // just in case _ctx is attach in Function{}.apply()
+                // just in case _ctx is attach in Function{}.apply() but shouldnt matter, but
+                // why not
                 self.m[i]._ctx = None;
                 self.v[i]._ctx = None;
                 g._ctx = None;

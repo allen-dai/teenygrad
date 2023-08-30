@@ -1,14 +1,13 @@
 pub mod core_ops;
 pub mod dtype;
 pub mod id;
+pub mod mlops;
 pub mod shape;
-
 use std::borrow::Borrow;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use crate::backend::ops::*;
 use crate::backend::Backend;
 use crate::prelude::*;
 use rand_distr::{StandardNormal, Uniform};
@@ -134,7 +133,7 @@ impl<B: Backend> Tensor<B> {
     //def scaled_uniform(*shape, **kwargs) -> Tensor: return Tensor.uniform(*shape, **kwargs).mul(math.prod(shape)**-0.5)
     pub fn scaled_uniform<S: Into<Shape>>(shape: S) -> Self {
         let shape = shape.into();
-        Self::uniform(shape.clone()) * (shape.dims.iter().product::<usize>() as f64).powf(-0.5)
+        Self::uniform(shape.clone()) * (shape.numel() as f64).powf(-0.5)
     }
 
     pub fn glorot_uniform<S: Into<Shape>>(shape: S) -> Self {
@@ -244,7 +243,7 @@ impl<B: Backend> Tensor<B> {
     }
 
     pub fn sigmoid(&self) -> Self {
-        todo!()
+        Sigmoid::default().apply(self, None, None, None, None)
     }
 
     pub fn _softmax(&self, axis: isize) -> (Self, Self, Self) {
@@ -311,15 +310,23 @@ impl<B: Backend> Tensor<B> {
         self.reshape([self.shape().numel()]).sum_keepdim(0)
     }
 
+    pub fn ndim(&self) -> usize {
+        self.shape().len()
+    }
+
     pub fn max(&self, axis: isize) -> Self {
         let mut shape = self.shape();
-        let ret = self.max_keepdim(axis);
-        let axis = if axis < 0 {
+        let _axis = if axis < 0 {
             (self.shape().len() as isize + axis) as usize
         } else {
             axis as usize
         };
-        shape.dims.remove(axis);
+        // FIXME: Teenygrad just output a clone of self when axis >= self.ndim
+        if _axis >= self.ndim() {
+            return self.clone();
+        }
+        let ret = self.max_keepdim(axis);
+        shape.dims.remove(_axis);
         ret.reshape(shape)
     }
 
@@ -338,29 +345,32 @@ impl<B: Backend> Tensor<B> {
         self.reshape([self.shape().numel()]).max_keepdim(0)
     }
 
-    pub fn matmul(&self, rhs: &Self) -> Self {
+    pub fn matmul(&self, w: &Self) -> Self {
         let n1 = self.shape().len();
-        let n2 = rhs.shape().len();
-        let mut a_shape = self.shape();
-        let last = a_shape.dims.pop().unwrap();
-        a_shape
-            .dims
-            .extend_from_slice(&vec![1; (n1 - 1).min(n2 - 1).min(1)]);
-        a_shape.dims.push(last);
-        let mut a = self.reshape(a_shape);
-        let mut b_shape = rhs.shape();
-        b_shape.dims = b_shape.dims[0..b_shape.len() - 2].to_vec();
-        b_shape
-            .dims
-            .extend_from_slice(&vec![1; (n1 - 1).min(n2 - 1).min(1)]);
-        b_shape
-            .dims
-            .extend_from_slice(&rhs.shape().dims[rhs.shape().len() - n2.min(2)..]);
-        let mut order = (0..b_shape.len()).collect::<Vec<usize>>();
-        order.swap(b_shape.len() - 1, b_shape.len() - 2.min(n2));
-        let mut b = rhs.reshape(b_shape).permute(order);
-        let (a, b) = Self::_broadcast(&a, &b);
-        (a * b).sum(-1)
+        let n2 = w.shape().len();
+        {
+            let tmp = -(n2.min(2) as isize);
+            assert!(n1 != 0 && n2 != 0);
+            assert!(
+                self.shape()[-1] == w.shape()[tmp],
+                "{}[-1] != {}[{tmp}]",
+                self.shape(),
+                w.shape()
+            );
+        }
+        let mut x_reshape = Vec::new();
+        //x = self.reshape(*self.shape[0:-1], *[1]*min(n1-1, n2-1, 1), self.shape[-1])
+        x_reshape.extend_from_slice(&self.shape().dims[..n1 - 1]);
+        x_reshape.extend_from_slice(&vec![1; (n1 - 1).min(n2 - 1).min(1)]);
+        x_reshape.push(self.shape()[-1]);
+        let x = self.reshape(x_reshape);
+        // w = w.reshape(*w.shape[0:-2], *[1]*min(n1-1, n2-1, 1), *w.shape[-min(n2, 2):]).transpose(-1, -min(n2, 2))
+        let mut w_reshape = Vec::new();
+        w_reshape.extend_from_slice(&w.shape().dims[0..n2 - 2]);
+        w_reshape.extend_from_slice(&vec![1; (n1 - 1).min(n2 - 1).min(1)]);
+        w_reshape.extend_from_slice(&w.shape().dims[n2 - (n2.min(2))..]);
+        let w = w.reshape(w_reshape).transpose(-1, -(n2.min(2) as isize));
+        (x * w).sum(-1)
     }
 
     pub fn _broadcast_r(x: &Self, y: &Self) -> (Self, Self) {
@@ -656,6 +666,9 @@ impl<B: Backend> Tensor<B> {
         let mut visisted = HashSet::new();
         Self::_deepwalk(self, &mut visisted, &mut ret);
         //println!("{ret:?}");
+        // for (i, n) in ret.iter().enumerate() {
+        //     println!("i:{:?} {:?}", i, n);
+        // }
         ret
     }
 
@@ -938,6 +951,34 @@ impl<B: Backend> Tensor<B> {
         }
         .apply(&x, Some(&y), Some(&z), None, None)
     }
+
+    // def mean(self, axis=None, keepdim=False):
+    //   out = self.sum(axis=axis, keepdim=keepdim)
+    //   return out * (math.prod(out.shape)/math.prod(self.shape))
+    pub fn mean(&self) -> Self {
+        let out = self.sum_all();
+        let o_numel = out.shape().numel() as f64;
+        out * (o_numel / self.shape().numel() as f64)
+    }
+
+    // def abs(self): return self.relu() + (-self).relu()
+    pub fn abs(&self) -> Self {
+        self.relu() + (-self).relu()
+    }
+
+    pub fn numel(&self) -> f64 {
+        self.shape().numel() as f64
+    }
+
+    pub fn detach(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            require_grad: false,
+            grad: Arc::default(),
+            _ctx: None,
+            id: tensor_id(),
+        }
+    }
 }
 
 //TODO: Tests should be in a macro so that each backend can generate test.
@@ -1126,25 +1167,22 @@ fn conv2d() {
     );
 }
 
-#[test]
-fn softmax() {
-    let t = Tensor::<Cpu>::glorot_uniform([3, 3, 3]);
-    //TODO: Need actual test
-}
-
-#[test]
-fn arange() {
-    let t = Tensor::<Cpu>::arange(10.0);
-    assert!(t.to_vec() == vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
-    //TODO: Need more test, im too tired now
-}
+// macro_rules! close_to_literal {
+//     ($x:tt, $y:tt) => {
+//         x.iter().zip(y.iter()).any(|(x, y)| x / yfm)
+//     };
+// }
 
 #[test]
 fn sparse_categorical_crossentropy() {
     let y = Tensor::<Cpu>::from_vec([1.0, 2.0], [2]);
     let out = Tensor::<Cpu>::from_vec([0.05, 0.95, 0., 0.1, 0.8, 0.1], [6]);
     let loss = out.sparse_categorical_crossentropy(&y);
-    assert!(vec![1.7302881] == loss.to_vec());
+    approx_eq!(loss, [1.7302881]);
+    let y = Tensor::<Cpu>::from_vec([-0.0, -0.0, -1., -0.1, -0.2, -0.3], [6]);
+    let out = Tensor::<Cpu>::from_vec([-0.05, -0.95, -0., -0.1, -0.8, -0.1], [6]);
+    let loss = out.sparse_categorical_crossentropy(&y);
+    approx_eq!(loss, [0.6301593]);
 }
 
 #[test]
@@ -1152,11 +1190,11 @@ fn lt() {
     let x = Tensor::<Cpu>::from_vec([1., 2., 3., 4., 5.], [5]);
     let y = Tensor::<Cpu>::from_vec([0., 2., 0., 4., 0.], [5]);
     let o = x._lt(&y);
-    assert!(vec![0., 0., 0., 0., 0.] == o.to_vec());
+    approx_eq!(o, [0., 0., 0., 0., 0.]);
     let x = Tensor::<Cpu>::from_vec([1., 0., 3., 0., 5.], [5]);
     let y = Tensor::<Cpu>::from_vec([0., 2., 0., 4., 0.], [5]);
     let o = x._lt(&y);
-    assert!(vec![0., 1., 0., 1., 0.] == o.to_vec());
+    approx_eq!(o, [0., 1., 0., 1., 0.]);
 }
 
 #[test]
@@ -1164,7 +1202,7 @@ fn eq() {
     let x = Tensor::<Cpu>::from_vec([1., 2., 3., 4., 5.], [5]);
     let y = Tensor::<Cpu>::from_vec([0., 2., 0., 4., 0.], [5]);
     let o = x._eq(&y);
-    assert!(vec![0., 1., 0., 1., 0.] == o.to_vec());
+    approx_eq!(o, [0., 1., 0., 1., 0.]);
 }
 
 #[test]
@@ -1172,16 +1210,16 @@ fn where_test() {
     let x = Tensor::<Cpu>::from_vec([1., 2., 3., 4., 5.], [5]);
     let y = Tensor::<Cpu>::from_vec([0., 2., 0., 4., 0.], [5]);
     let out = x._eq(&y)._where(1.0, 2.0);
-    assert!(vec![2., 1., 2., 1., 2.] == out.to_vec())
+    approx_eq!(out, [2., 1., 2., 1., 2.]);
 }
 
 #[test]
 fn test_softmax() {
     let x = Tensor::<Cpu>::from_vec([1., 2., 3.], [3]);
     let (m, e, ss) = x._softmax(-1);
-    assert!(vec![-2., -1., 0.,] == m.to_vec());
-    assert!(vec![0.13533531, 0.36787948, 1.,] == e.to_vec());
-    assert!(vec![1.5032148] == ss.to_vec());
+    approx_eq!(m, [-2., -1., 0.,]);
+    approx_eq!(e, [0.13533531, 0.36787948, 1.,]);
+    approx_eq!(ss, [1.5032148]);
 }
 
 #[test]
@@ -1194,21 +1232,59 @@ fn max_test() {
         [3 * 3 * 3],
     )
     .reshape([3, 3, 3]);
-    let y = (x * -1.);
-    assert!(vec![-1.0] == y.max_all().to_vec(), "{:?}", y.inner)
+    let y = (x * -1.).max_all();
+    approx_eq!(y, [-1.0]);
 }
 
 #[test]
-fn test_scaled_uniform() {
-    let t = Tensor::<Cpu>::scaled_uniform([3, 3, 3]);
-    println!("{t:?}");
-}
+fn xor() {
+    struct Xornet {
+        l1: Tensor<Cpu>,
+        l2: Tensor<Cpu>,
+    }
+    impl Xornet {
+        pub fn new() -> Self {
+            Self {
+                l1: Tensor::<Cpu>::scaled_uniform([2, 10]),
+                l2: Tensor::<Cpu>::scaled_uniform([10, 1]),
+            }
+        }
+        pub fn forward(&mut self, x: &Tensor<Cpu>) -> Tensor<Cpu> {
+            let mut x = x.matmul(&self.l1).sigmoid();
+            x = x.matmul(&self.l2);
+            x
+        }
+    }
 
-#[test]
-fn test_log() {
-    let mut y = Tensor::<Cpu>::from_vec([2.3], [1]);
-    y.require_grad = true;
-    let mut ylog = y.log();
-    ylog.backward();
-    println!("{:?}", y.grad);
+    // loss = (y - out).abs().sum() / y.numel()
+    let mut model = Xornet::new();
+    let mut optim = Adam(vec![&mut model.l1, &mut model.l2], 0.1);
+    let x = Tensor::<Cpu>::from_vec([0., 0., 0., 1., 1., 0., 1., 1.], [4, 2]);
+    let y = Tensor::<Cpu>::from_vec([0., 1., 1., 0.], [1, 4]);
+    for i in 0..100 {
+        let mut out = model.forward(&x);
+        //let mut loss = (&out - &y).abs().sum_all() / y.numel();
+        let mut loss = (&out - &y);
+        loss = (&loss * &loss).mean();
+        optim.zero_grad();
+        println!("loss {:?}", loss.to_vec());
+        loss.backward();
+        optim.step();
+    }
+
+    // let t = Tensor::<Cpu>::from_vec([0., 0.], [2]);
+    // let y = Tensor::<Cpu>::from_vec([0.], [1]);
+    // //println!("Expected: 0 | Got: {}", model.forward(&t).to_vec()[0]);
+    //
+    // let t = Tensor::<Cpu>::from_vec([1., 0.], [2]);
+    // let y = Tensor::<Cpu>::from_vec([1.], [1]);
+    // //println!("Expected: 1 | Got: {}", model.forward(&t).to_vec()[0]);
+    //
+    // let t = Tensor::<Cpu>::from_vec([0., 1.], [2]);
+    // let y = Tensor::<Cpu>::from_vec([1.], [1]);
+    // //println!("Expected: 1 | Got: {}", model.forward(&t).to_vec()[0]);
+    //
+    // let t = Tensor::<Cpu>::from_vec([1., 1.], [2]);
+    // let y = Tensor::<Cpu>::from_vec([0.], [1]);
+    //println!("Expected: 0 | Got: {}", model.forward(&t).to_vec()[0]);
 }

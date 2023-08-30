@@ -1,5 +1,4 @@
 pub mod cpu;
-pub mod ops;
 
 use rand_distr::Distribution;
 

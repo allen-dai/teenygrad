@@ -84,26 +84,24 @@ fn train<B: Backend>(model: &mut ConvNet<B>) {
             .iter()
             .map(|e| B::Dtype::from_f32(*e).unwrap())
             .collect::<Vec<B::Dtype>>(),
-        [1, 28 * 28],
+        [1,28*28],
     );
-    let mut y = vec![B::Dtype::zero(); 10];
-    y[6] = B::Dtype::one();
-    let mut y = Tensor::from_vec(y, [10]);
+    let mut y = Tensor::from_vec([B::Dtype::from_f32(7.0).unwrap()], [1]);
     //println!("{}", x);
 
     let mut optim = Adam(vec![&mut model.c1, &mut model.c2, &mut model.l1], 0.001);
 
     let mut it = 1f64;
     let s = SystemTime::now();
-    for _ in 0..50 {
+    for _ in 0..100 {
         let out = model.forward(&x);
-        println!("{:?}", out.inner);
         let mut loss = out.sparse_categorical_crossentropy(&y);
         optim.zero_grad();
         loss.backward();
         optim.step();
         let e = SystemTime::now();
         let t = e.duration_since(s).unwrap().as_secs_f64();
+        // std::thread::sleep(std::time::Duration::from_millis(500));
         it += 1.0;
         println!("loss: {:?}", loss.inner);
         println!("{}it/s", it / t);

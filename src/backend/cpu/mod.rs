@@ -29,7 +29,7 @@ impl<T: Dtype> core::fmt::Debug for Cpu<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for i in 0..self.shape.numel() {
             //write!(f, "{:<12?}", self_idx);
-            write!(f, "{:<10.4?}", self.buffer.0[self.row_i(i)]);
+            write!(f, "{:<10.6?}", self.buffer.0[self.row_i(i)]);
             if (i + 1) % self.shape[self.shape.len() - 1] == 0 {
                 write!(f, "\n");
             }
