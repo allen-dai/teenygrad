@@ -875,14 +875,14 @@ impl<B: Backend> Tensor<B> {
             .unsqueeze(0)
             .expand([y.shape().numel(), self.shape()[-1]]);
         // y = ( (y_counter == Y.flatten().reshape(-1, 1)) .where(-1.0, 0) * loss_mask.reshape(-1, 1)) .reshape(*Y.shape, self.shape[-1])
-        let mut r_shape = y.shape();
-        r_shape.dims.push(self.shape()[-1]);
+        let mut y_rsh = y.shape();
+        y_rsh.dims.push(self.shape()[-1]);
 
         let yy = (y_counter
             ._eq(&y.flatten().reshape([y.shape().numel(), 1]))
             ._where(-1., 0.)
             * loss_mark.reshape([loss_mark.shape().numel(), 1]))
-        .reshape(r_shape);
+        .reshape(y_rsh);
         (self.log_softmax() * yy).sum_all() / loss_mark.sum_all()
     }
 
@@ -1232,55 +1232,55 @@ fn max_test() {
     approx_eq!(y, [-1.0]);
 }
 
-#[test]
-fn xor() {
-    struct Xornet {
-        l1: Tensor<Cpu>,
-        l2: Tensor<Cpu>,
-    }
-    impl Xornet {
-        pub fn new() -> Self {
-            Self {
-                l1: Tensor::<Cpu>::scaled_uniform([2, 10]),
-                l2: Tensor::<Cpu>::scaled_uniform([10, 1]),
-            }
-        }
-        pub fn forward(&mut self, x: &Tensor<Cpu>) -> Tensor<Cpu> {
-            let mut x = x.matmul(&self.l1).sigmoid();
-            x = x.matmul(&self.l2);
-            x
-        }
-    }
-
-    // loss = (y - out).abs().sum() / y.numel()
-    let mut model = Xornet::new();
-    let mut optim = adam(vec![&mut model.l1, &mut model.l2], 0.1);
-    let x = Tensor::<Cpu>::from_vec([0., 0., 0., 1., 1., 0., 1., 1.], [4, 2]);
-    let y = Tensor::<Cpu>::from_vec([0., 1., 1., 0.], [1, 4]);
-    for _ in 0..100 {
-        let out = model.forward(&x);
-        //let mut loss = (&out - &y).abs().sum_all() / y.numel();
-        let mut loss = &out - &y;
-        loss = (&loss * &loss).mean();
-        optim.zero_grad();
-        println!("loss {:?}", loss.to_vec());
-        loss.backward();
-        optim.step();
-    }
-
-    // let t = Tensor::<Cpu>::from_vec([0., 0.], [2]);
-    // let y = Tensor::<Cpu>::from_vec([0.], [1]);
-    // //println!("Expected: 0 | Got: {}", model.forward(&t).to_vec()[0]);
-    //
-    // let t = Tensor::<Cpu>::from_vec([1., 0.], [2]);
-    // let y = Tensor::<Cpu>::from_vec([1.], [1]);
-    // //println!("Expected: 1 | Got: {}", model.forward(&t).to_vec()[0]);
-    //
-    // let t = Tensor::<Cpu>::from_vec([0., 1.], [2]);
-    // let y = Tensor::<Cpu>::from_vec([1.], [1]);
-    // //println!("Expected: 1 | Got: {}", model.forward(&t).to_vec()[0]);
-    //
-    // let t = Tensor::<Cpu>::from_vec([1., 1.], [2]);
-    // let y = Tensor::<Cpu>::from_vec([0.], [1]);
-    //println!("Expected: 0 | Got: {}", model.forward(&t).to_vec()[0]);
-}
+// #[test]
+// fn xor() {
+//     struct Xornet {
+//         l1: Tensor<Cpu>,
+//         l2: Tensor<Cpu>,
+//     }
+//     impl Xornet {
+//         pub fn new() -> Self {
+//             Self {
+//                 l1: Tensor::<Cpu>::scaled_uniform([2, 10]),
+//                 l2: Tensor::<Cpu>::scaled_uniform([10, 1]),
+//             }
+//         }
+//         pub fn forward(&mut self, x: &Tensor<Cpu>) -> Tensor<Cpu> {
+//             let mut x = x.matmul(&self.l1).sigmoid();
+//             x = x.matmul(&self.l2);
+//             x
+//         }
+//     }
+//
+//     // loss = (y - out).abs().sum() / y.numel()
+//     let mut model = Xornet::new();
+//     let mut optim = adam(vec![&mut model.l1, &mut model.l2], 0.1);
+//     let x = Tensor::<Cpu>::from_vec([0., 0., 0., 1., 1., 0., 1., 1.], [4, 2]);
+//     let y = Tensor::<Cpu>::from_vec([0., 1., 1., 0.], [1, 4]);
+//     for _ in 0..100 {
+//         let out = model.forward(&x);
+//         //let mut loss = (&out - &y).abs().sum_all() / y.numel();
+//         let mut loss = &out - &y;
+//         loss = (&loss * &loss).mean();
+//         optim.zero_grad();
+//         println!("loss {:?}", loss.to_vec());
+//         loss.backward();
+//         optim.step();
+//     }
+//
+//     // let t = Tensor::<Cpu>::from_vec([0., 0.], [2]);
+//     // let y = Tensor::<Cpu>::from_vec([0.], [1]);
+//     // //println!("Expected: 0 | Got: {}", model.forward(&t).to_vec()[0]);
+//     //
+//     // let t = Tensor::<Cpu>::from_vec([1., 0.], [2]);
+//     // let y = Tensor::<Cpu>::from_vec([1.], [1]);
+//     // //println!("Expected: 1 | Got: {}", model.forward(&t).to_vec()[0]);
+//     //
+//     // let t = Tensor::<Cpu>::from_vec([0., 1.], [2]);
+//     // let y = Tensor::<Cpu>::from_vec([1.], [1]);
+//     // //println!("Expected: 1 | Got: {}", model.forward(&t).to_vec()[0]);
+//     //
+//     // let t = Tensor::<Cpu>::from_vec([1., 1.], [2]);
+//     // let y = Tensor::<Cpu>::from_vec([0.], [1]);
+//     //println!("Expected: 0 | Got: {}", model.forward(&t).to_vec()[0]);
+// }

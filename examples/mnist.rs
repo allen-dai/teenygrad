@@ -1,8 +1,10 @@
+use kdam::{tqdm, BarExt};
+use rand::{seq::SliceRandom, thread_rng};
 use teenygrad::prelude::*;
-use std::time::SystemTime;
 
 pub fn main() {
-    println!("running exmaple mnist");
+    let mut model = ConvNet::<Cpu>::default();
+    train(&mut model);
 }
 pub struct ConvNet<B: Backend> {
     pub c1: Tensor<B>,
@@ -35,73 +37,50 @@ impl<B: Backend> ConvNet<B> {
     }
 }
 
-fn train<B: Backend>(model: &mut ConvNet<B>) {
-    let seven: Vec<f32> = vec![
-        0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-        0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-        0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-        0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-        0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-        0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-        0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-        0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-        0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 1., 83., 130.,
-        130., 155., 194., 163., 130., 130., 231., 255., 255., 95., 0., 0., 0., 0., 0., 0., 0., 0.,
-        0., 0., 0., 0., 0., 0., 0., 92., 253., 253., 253., 253., 253., 253., 253., 253., 253.,
-        253., 253., 207., 13., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 149., 253.,
-        253., 253., 253., 253., 253., 253., 253., 253., 253., 253., 188., 11., 0., 0., 0., 0., 0.,
-        0., 0., 0., 0., 0., 0., 0., 0., 0., 62., 105., 123., 228., 204., 105., 105., 105., 105.,
-        225., 253., 253., 30., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-        0., 0., 0., 0., 0., 0., 0., 205., 253., 253., 30., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-        0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 11., 212., 253., 240., 26., 0., 0., 0.,
-        0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 156., 253.,
-        238., 72., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-        0., 0., 0., 47., 236., 253., 166., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-        0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 96., 253., 253., 139., 0., 0., 0., 0., 0., 0., 0.,
-        0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 16., 207., 253., 233., 32.,
-        0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-        156., 253., 253., 79., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-        0., 0., 0., 0., 0., 0., 17., 206., 253., 231., 35., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-        0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 56., 253., 253., 179., 0., 0., 0., 0.,
-        0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 18., 184.,
-        253., 230., 57., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-        0., 0., 0., 0., 0., 50., 253., 253., 139., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-        0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 99., 253., 150., 8., 0., 0., 0., 0., 0.,
-        0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 152., 246., 253.,
-        68., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-        0., 0., 90., 247., 253., 201., 5., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-        0., 0., 0., 0., 0., 0., 0., 0., 30., 249., 253., 253., 79., 0., 0., 0., 0., 0., 0., 0., 0.,
-        0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 32., 253., 171., 105., 2., 0.,
-        0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-        0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-    ];
-
-    let mut x = Tensor::from_vec(
-        seven
-            .iter()
-            .map(|e| B::Dtype::from_f32(*e).unwrap())
-            .collect::<Vec<B::Dtype>>(),
-        [1, 28 * 28],
-    )
-    .expand([128, 28 * 28]);
-    let mut y = Tensor::from_vec([B::Dtype::from_f32(7.0).unwrap()], [1]).expand([128]);
-    //println!("{}", x);
-
+fn train<B: Backend>(model: &mut ConvNet<B>) -> Result<(), Box<dyn std::error::Error>> {
+    use mnist::Mnist;
+    let mnist = Mnist::from_download()?;
+    let Mnist {
+        train_images,
+        train_labels,
+        test_images,
+        test_labels,
+    } = mnist;
     let mut optim = adam(vec![&mut model.c1, &mut model.c2, &mut model.l1], 0.001);
-
-    let mut it = 1f64;
-    let s = SystemTime::now();
-    for _ in 0..100 {
+    let mut rng = thread_rng();
+    let mut shuffle_idx: Vec<usize> = (0..60000).collect();
+    let batch_size = 128;
+    shuffle_idx.shuffle(&mut rng);
+    let mut img_batched: Vec<Vec<B::Dtype>> = Vec::with_capacity(60000 * 28 * 28);
+    let mut lbl_batched: Vec<Vec<B::Dtype>> = Vec::with_capacity(60000 * 10);
+    let mut img_in_one_batch = Vec::with_capacity(batch_size);
+    let mut lbl_in_one_batch = Vec::with_capacity(batch_size);
+    for i in 0..60000 {
+        for ii in 0..28 * 28 {
+            img_in_one_batch
+                .push(B::Dtype::from_u8(train_images[(shuffle_idx[i] * (28 * 28)) + ii]).unwrap());
+        }
+        lbl_in_one_batch.push(B::Dtype::from_u8(train_labels[shuffle_idx[i]]).unwrap());
+        if (i + 1) % batch_size == 0 {
+            img_batched.push(img_in_one_batch.clone());
+            lbl_batched.push(lbl_in_one_batch.clone());
+            img_in_one_batch.clear();
+            lbl_in_one_batch.clear();
+        }
+    }
+    let mut pb = tqdm!(total=100);
+    pb.set_description(format!("loss: {:.05}", 0));
+    pb.refresh()?;
+    for i in 0..100 {
+        let x = Tensor::from_vec(&*img_batched[i], [batch_size, 1, 28, 28]);
+        let y = Tensor::from_vec(&*lbl_batched[i], [batch_size]);
         let out = model.forward(&x);
         let mut loss = out.sparse_categorical_crossentropy(&y);
         optim.zero_grad();
         loss.backward();
         optim.step();
-        let e = SystemTime::now();
-        let t = e.duration_since(s).unwrap().as_secs_f64();
-        // std::thread::sleep(std::time::Duration::from_millis(500));
-        it += 1.0;
-        println!("loss: {:?}", loss.inner);
-        println!("{}it/s", it / t);
+        pb.set_description(format!("loss: {:.05?}", loss.inner.to_vec()[0]));
+        pb.update(1)?;
     }
+    Ok(())
 }

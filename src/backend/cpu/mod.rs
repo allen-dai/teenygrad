@@ -521,7 +521,7 @@ impl<T: Dtype> Backend for Cpu<T> {
             .enumerate()
             .for_each(|(i, (l, r))| {
                 if l != r && *l != 1 {
-                    panic!("dim {i} != expand shape dim {i} && dim {i} != 1")
+                    panic!("Can not expand to shape. From: {} To: {}",self.shape(), shape)
                 }
             });
 
