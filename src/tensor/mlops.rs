@@ -3,10 +3,7 @@ use crate::{
     tensor::id::{tensor_id, TensorId},
 };
 use dyn_clone::DynClone;
-use std::{
-    collections::{HashMap, HashSet},
-    marker::PhantomData,
-};
+use std::marker::PhantomData;
 
 pub fn argsort<V: Into<Vec<usize>>>(shape: V) -> Vec<usize> {
     let shape = shape.into();

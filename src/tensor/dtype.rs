@@ -1,4 +1,3 @@
-use half::{bf16, f16};
 use num_traits::{Float, FromPrimitive, NumOps, One, ToPrimitive, Zero};
 
 pub trait Dtype:
@@ -44,25 +43,3 @@ impl Dtype for f32 {
 // impl Dtype for u32 {}
 // impl Dtype for u16 {}
 // impl Dtype for u8 {}
-
-macro_rules! df {
-    ($t: expr) => {
-        Dtype::from_f64($t).unwrap()
-    };
-}
-
-macro_rules! di {
-    ($t: expr) => {
-        Dtype::from_isize($t).unwrap()
-    };
-}
-
-macro_rules! du {
-    ($t: expr) => {
-        Dtype::from_usize($t).unwrap()
-    };
-}
-
-pub(crate) use df;
-pub(crate) use di;
-pub(crate) use du;

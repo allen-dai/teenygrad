@@ -1,5 +1,3 @@
-use num_traits::Float;
-
 use crate::prelude::*;
 
 pub trait Optimizer {
@@ -8,7 +6,7 @@ pub trait Optimizer {
     fn step(&mut self);
 }
 
-pub fn Adam<'a, B: Backend>(params: Vec<*mut Tensor<B>>, lr: f32) -> LAMP<B> {
+pub fn adam<'a, B: Backend>(params: Vec<*mut Tensor<B>>, lr: f32) -> LAMP<B> {
     LAMP::new(params, lr, 0.9, 0.999, 1e-8, 0.0, true)
 }
 
@@ -104,7 +102,7 @@ impl<B: Backend> Optimizer for LAMP<B> {
 
                 // self.m[i].assign(self.m[i] * self.b1 + g * (1.0 - self.b1)).realize()
                 // self.v[i].assign(self.v[i] * self.b2 + (g * g) * (1.0 - self.b2)).realize()
-                self.m[i] = (&self.m[i] * self.b1 + &g * (1.0 - self.b1));
+                self.m[i] = &self.m[i] * self.b1 + &g * (1.0 - self.b1);
                 self.v[i] = &self.v[i] * self.b2 + (&g * &g) * (1.0 - self.b2);
                 // m_hat = self.m[i] / (1.0 - self.b1**self.t)
                 let m_hat = &self.m[i] / (1.0 - self.b1.powf(self.t));

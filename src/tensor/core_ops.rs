@@ -1,7 +1,5 @@
 use crate::prelude::*;
 
-use super::id::tensor_id;
-
 impl<B: Backend> core::fmt::Debug for Tensor<B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(

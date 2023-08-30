@@ -3,14 +3,12 @@ pub mod dtype;
 pub mod id;
 pub mod mlops;
 pub mod shape;
-use std::borrow::Borrow;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 
 use crate::backend::Backend;
 use crate::prelude::*;
-use rand_distr::{StandardNormal, Uniform};
 
 use id::{tensor_id, TensorId};
 
@@ -75,7 +73,6 @@ impl<B: Backend> Tensor<B> {
 
     // ------------ Load
     pub fn zeros<S: Into<Shape>>(shape: S) -> Self {
-        use num_traits::Zero;
         Self {
             inner: B::empty(&shape.into()).const_like(B::Dtype::zero()),
             require_grad: false,
@@ -86,7 +83,6 @@ impl<B: Backend> Tensor<B> {
     }
 
     pub fn ones<S: Into<Shape>>(shape: S) -> Self {
-        use num_traits::One;
         Self {
             inner: B::empty(&shape.into()).const_like(B::Dtype::one()),
             require_grad: false,
@@ -594,7 +590,7 @@ impl<B: Backend> Tensor<B> {
         let [cout, cin] = weigth.shape().dims[..2] else {
             panic!()
         };
-        let HW = weigth.shape().dims[2..].to_vec();
+        let hw = weigth.shape().dims[2..].to_vec();
         assert!(
             groups * cin == cin_ && self.shape().len() == weigth.shape().len(),
             "Input Tensor shape {} does not match the shape of the weights {}. ({} vs. {})",
@@ -605,7 +601,7 @@ impl<B: Backend> Tensor<B> {
         );
         let padding = padding.into();
         let mut padding_ = if padding.len() == 1 {
-            vec![padding[0]; 2 * HW.len()]
+            vec![padding[0]; 2 * hw.len()]
         } else {
             padding
         };
@@ -617,28 +613,28 @@ impl<B: Backend> Tensor<B> {
         );
         let mut x =
             self.pad2d(padding_, B::Dtype::zero())
-                ._pool(Shape::from(HW.clone()), stride, dilation);
+                ._pool(Shape::from(hw.clone()), stride, dilation);
         let rcout = cout / groups;
-        let oyx = x.shape().dims[2..x.shape().len() - HW.len()].to_vec();
+        let oyx = x.shape().dims[2..x.shape().len() - hw.len()].to_vec();
         //reshape(bs, groups, cin, 1, *oyx, *HW)
         let mut rsh_tmp = vec![bs, groups, cin, 1];
         rsh_tmp.extend(oyx.iter());
-        rsh_tmp.extend(HW.iter());
+        rsh_tmp.extend(hw.iter());
         //expand(bs, groups, cin, rcout, *oyx, *HW)
         let mut exp_tmp = vec![bs, groups, cin, rcout];
         exp_tmp.extend(oyx.iter());
-        exp_tmp.extend(HW.iter());
+        exp_tmp.extend(hw.iter());
         //permute(0,1,3,*[4+i for i in range(len(oyx))],2,*[4+len(oyx)+i for i in range(len(HW))])
         let mut permute_tmp = vec![0, 1, 3];
         permute_tmp.extend((0..oyx.len()).into_iter().map(|i| 4 + i));
         permute_tmp.push(2);
-        permute_tmp.extend((0..HW.len()).into_iter().map(|i| 4 + oyx.len() + i));
+        permute_tmp.extend((0..hw.len()).into_iter().map(|i| 4 + oyx.len() + i));
         x = x.reshape(rsh_tmp).expand(exp_tmp).permute(permute_tmp);
         // ret = (x * weight.reshape(1, groups, rcout, *[1] * len(oyx), cin, *HW)).sum([-1-i for i in range(1+len(oyx))], keepdim=True).reshape(bs, cout, *oyx)
         let mut w_rsh_tmp = vec![1, groups, rcout];
         w_rsh_tmp.extend(vec![1; oyx.len()]);
         w_rsh_tmp.push(cin);
-        w_rsh_tmp.extend(HW.iter());
+        w_rsh_tmp.extend(hw.iter());
         let mut ret = x * weigth.reshape(w_rsh_tmp);
         for i in 0..oyx.len() + 1 {
             let reduce_i = -1 - (i as isize);
@@ -653,7 +649,7 @@ impl<B: Backend> Tensor<B> {
         // bias.reshape(1, -1, *[1] * len(HW))
         let bias = bias.unwrap();
         let mut b_rsh_tmp = vec![1, bias.shape().len()];
-        b_rsh_tmp.extend(vec![1; HW.len()]);
+        b_rsh_tmp.extend(vec![1; hw.len()]);
         ret + bias.reshape(b_rsh_tmp)
     }
 
@@ -860,7 +856,7 @@ impl<B: Backend> Tensor<B> {
     //return self.transpose(axis,-1).pad2d((self.shape[axis]-1,0))._pool((self.shape[axis],)).sum(-1).transpose(axis,-1)
     pub fn _cumsum(&self, axis: isize) -> Self {
         let axis = if axis < 0 {
-            (axis + self.shape().dims.len() as isize)
+            axis + self.shape().dims.len() as isize
         } else {
             axis
         };
@@ -882,7 +878,7 @@ impl<B: Backend> Tensor<B> {
         let mut r_shape = y.shape();
         r_shape.dims.push(self.shape()[-1]);
 
-        let mut yy = (y_counter
+        let yy = (y_counter
             ._eq(&y.flatten().reshape([y.shape().numel(), 1]))
             ._where(-1., 0.)
             * loss_mark.reshape([loss_mark.shape().numel(), 1]))
@@ -890,7 +886,7 @@ impl<B: Backend> Tensor<B> {
         (self.log_softmax() * yy).sum_all() / loss_mark.sum_all()
     }
 
-    pub fn unsqueeze(&self, mut dim: isize) -> Self {
+    pub fn unsqueeze(&self, dim: isize) -> Self {
         let dim = if dim < 0 {
             (self.shape().len() as isize + dim + 1) as usize
         } else {
@@ -1258,13 +1254,13 @@ fn xor() {
 
     // loss = (y - out).abs().sum() / y.numel()
     let mut model = Xornet::new();
-    let mut optim = Adam(vec![&mut model.l1, &mut model.l2], 0.1);
+    let mut optim = adam(vec![&mut model.l1, &mut model.l2], 0.1);
     let x = Tensor::<Cpu>::from_vec([0., 0., 0., 1., 1., 0., 1., 1.], [4, 2]);
     let y = Tensor::<Cpu>::from_vec([0., 1., 1., 0.], [1, 4]);
-    for i in 0..100 {
-        let mut out = model.forward(&x);
+    for _ in 0..100 {
+        let out = model.forward(&x);
         //let mut loss = (&out - &y).abs().sum_all() / y.numel();
-        let mut loss = (&out - &y);
+        let mut loss = &out - &y;
         loss = (&loss * &loss).mean();
         optim.zero_grad();
         println!("loss {:?}", loss.to_vec());

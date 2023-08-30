@@ -29,9 +29,9 @@ impl<T: Dtype> core::fmt::Debug for Cpu<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for i in 0..self.shape.numel() {
             //write!(f, "{:<12?}", self_idx);
-            write!(f, "{:<10.6?}", self.buffer.0[self.row_i(i)]);
+            write!(f, "{:<10.6?}", self.buffer.0[self.row_i(i)])?;
             if (i + 1) % self.shape[self.shape.len() - 1] == 0 {
-                write!(f, "\n");
+                write!(f, "\n")?;
             }
 
             if self.shape.len() >= 2
@@ -41,7 +41,7 @@ impl<T: Dtype> core::fmt::Debug for Cpu<T> {
                         .product::<usize>()
                     == 0
             {
-                write!(f, "\n");
+                write!(f, "\n")?;
             }
         }
         Ok(())
@@ -314,7 +314,7 @@ impl<T: Dtype> Backend for Cpu<T> {
             };
         }
         let _axis = _axis.unwrap();
-        let mut axis = if _axis < 0 {
+        let axis = if _axis < 0 {
             (self.shape.len() as isize + _axis) as usize
         } else {
             _axis as usize
@@ -375,7 +375,7 @@ impl<T: Dtype> Backend for Cpu<T> {
             };
         }
         let _axis = _axis.unwrap();
-        let mut axis = if _axis < 0 {
+        let axis = if _axis < 0 {
             (self.shape.len() as isize + _axis) as usize
         } else {
             _axis as usize
@@ -449,7 +449,7 @@ impl<T: Dtype> Backend for Cpu<T> {
 
     fn permute<S: Into<Shape>>(&self, permute: S) -> Self {
         let mut out = self.clone();
-        let mut permute = permute.into();
+        let permute = permute.into();
         assert!(
             permute.dims.iter().max().unwrap() < &out.shape.len(),
             "Permute index cannot be be >= number of dims: P: {} Dim: {}",
@@ -490,8 +490,8 @@ impl<T: Dtype> Backend for Cpu<T> {
                     .dims
                     .iter()
                     .zip(self.stride.dims.iter())
-                    .filter(|(sh, st)| **sh != 1)
-                    .map(|(sh, st)| *st),
+                    .filter(|(sh, _)| **sh != 1)
+                    .map(|(_, st)| *st),
             );
 
             let new_stride: Vec<usize> = shape
@@ -543,7 +543,7 @@ impl<T: Dtype> Backend for Cpu<T> {
     }
 
     fn shrink<A: Into<Vec<(usize, usize)>>>(&self, arg: A) -> Self {
-        let mut arg: Vec<(usize, usize)> = arg.into();
+        let arg: Vec<(usize, usize)> = arg.into();
         assert!(arg.len() == self.shape.len() || arg.len() == 1);
         if arg.len() == 1 && self.shape.len() != 1 {
             arg.repeat(self.shape().len());
@@ -553,7 +553,7 @@ impl<T: Dtype> Backend for Cpu<T> {
                 .dims
                 .iter()
                 .zip(arg.iter())
-                .map(|(dim, aarg)| aarg.0.abs_diff(aarg.1))
+                .map(|(_, aarg)| aarg.0.abs_diff(aarg.1))
                 .collect::<Vec<usize>>(),
         );
         let mut out = Self::empty(&new_shape).const_like(T::zero());
@@ -592,7 +592,7 @@ impl<T: Dtype> Backend for Cpu<T> {
     }
 
     fn pad<A: Into<Vec<(usize, usize)>>>(&self, arg: A, const_value: Self::Dtype) -> Self {
-        let mut arg: Vec<(usize, usize)> = arg.into();
+        let arg: Vec<(usize, usize)> = arg.into();
         assert!(arg.len() == self.shape.len() || arg.len() == 1);
         if arg.len() == 1 && self.shape.len() != 1 {
             arg.repeat(self.shape().len());

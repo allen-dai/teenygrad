@@ -1,12 +1,9 @@
-use std::time::SystemTime;
 use teenygrad::prelude::*;
+use std::time::SystemTime;
 
-fn main() {
-    let mut net = ConvNet::<Cpu>::default();
-    //println!("{}", net.c1);
-    train(&mut net);
+pub fn main() {
+    println!("running exmaple mnist");
 }
-
 pub struct ConvNet<B: Backend> {
     pub c1: Tensor<B>,
     pub c2: Tensor<B>,
@@ -84,12 +81,13 @@ fn train<B: Backend>(model: &mut ConvNet<B>) {
             .iter()
             .map(|e| B::Dtype::from_f32(*e).unwrap())
             .collect::<Vec<B::Dtype>>(),
-        [1,28*28],
-    );
-    let mut y = Tensor::from_vec([B::Dtype::from_f32(7.0).unwrap()], [1]);
+        [1, 28 * 28],
+    )
+    .expand([128, 28 * 28]);
+    let mut y = Tensor::from_vec([B::Dtype::from_f32(7.0).unwrap()], [1]).expand([128]);
     //println!("{}", x);
 
-    let mut optim = Adam(vec![&mut model.c1, &mut model.c2, &mut model.l1], 0.001);
+    let mut optim = adam(vec![&mut model.c1, &mut model.c2, &mut model.l1], 0.001);
 
     let mut it = 1f64;
     let s = SystemTime::now();
