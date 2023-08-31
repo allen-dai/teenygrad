@@ -6,8 +6,15 @@ pub trait Optimizer {
     fn step(&mut self);
 }
 
-pub fn adam<'a, B: Backend>(params: Vec<*mut Tensor<B>>, lr: f32) -> LAMP<B> {
-    LAMP::new(params, lr, 0.9, 0.999, 1e-8, 0.0, true)
+pub fn adam<'a, B: Backend>(params: &[*mut Tensor<B>], lr: f32) -> LAMP<B> {
+    LAMP::new(params.to_vec(), lr, 0.9, 0.999, 1e-8, 0.0, true)
+}
+
+pub fn adam_with<'a, B: Backend>(params: &[*mut Tensor<B>], p: &[f32]) -> LAMP<B> {
+    assert!(p.len() > 0, "need lr");
+    let mut default = [0.001, 0.9, 0.999, 1e-8, 0.0];
+    default.iter_mut().zip(p).for_each(|(d, p)| *d = *p);
+    LAMP::new(params.to_vec(), default[0], default[1], default[2], default[3], default[4], true)
 }
 
 //def __init__(self, params: List[Tensor], lr=0.001, b1=0.9, b2=0.999, eps=1e-6, wd=0.0, adam=False):
@@ -49,7 +56,7 @@ impl<B: Backend> LAMP<B> {
                 (*t).require_grad = true;
                 params.push(t);
             }
-            let lr = Tensor::from_vec([B::Dtype::from_f32(lr).unwrap()], [1]);
+            let lr = Tensor::from_shape([B::Dtype::from_f32(lr).unwrap()], [1]);
             params.dedup_by_key(|t| (*(*t)).id);
             //buffers.dedup_by_key(|t| (*(*t)).id);
             let m = params

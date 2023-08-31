@@ -234,7 +234,7 @@ impl<B: Backend> Function<B> for Sin<B> {
     fn backward(&mut self, grad: B) -> Grad<B> {
         let x = self.x.as_ref().unwrap();
         Grad::One(
-            x.const_like(B::Dtype::PI / B::Dtype::from_f32(2.0).unwrap())
+            x.const_like(B::Dtype::from_f64(core::f64::consts::PI / 2.0).unwrap())
                 .sub(x)
                 .sin()
                 .mul(&grad),
@@ -1245,7 +1245,7 @@ impl<B: Backend> Function<B> for Shrink<B> {
 
 #[test]
 fn mlop_sin() {
-    let mut t = Tensor::<Cpu>::from_vec([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    let mut t = Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
     t.require_grad = true;
     let mut x = t.sin();
     approx_eq!(
@@ -1281,7 +1281,7 @@ fn mlop_sin() {
 
 #[test]
 fn mlop_relu() {
-    let mut t = Tensor::<Cpu>::from_vec([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    let mut t = Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
     t.require_grad = true;
     let mut x = t.relu();
 
@@ -1292,20 +1292,20 @@ fn mlop_relu() {
         [0., 1., 0., 1., 0., 1., 0., 1., 0.]
     );
 
-    let mut t = Tensor::<Cpu>::from_vec([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    let mut t = Tensor::<Cpu>::from_shape([1.0, -2.0, 3.0, -4.0, 5.0, -6.0, 7.0, -8.0, 9.0], [3, 3]);
     t.require_grad = true;
-    let mut x = (&t * -1.0).relu();
+    let mut x = t.relu();
     approx_eq!(x, [1., 0., 3., 0., 5., 0., 7., 0., 9.]);
     x.sum_all().backward();
     approx_eq!(
         t.grad.lock().unwrap().as_ref().unwrap(),
-        [-1., 0., -1., 0., -1., 0., -1., 0., -1.]
+        [1., 0., 1., 0., 1., 0., 1., 0., 1.]
     );
 }
 
 #[test]
 fn mlop_log() {
-    let mut t = Tensor::<Cpu>::from_vec([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], [3, 3]);
+    let mut t = Tensor::<Cpu>::from_shape([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], [3, 3]);
     t.require_grad = true;
     let mut x = t.log();
     approx_eq!(
@@ -1324,7 +1324,7 @@ fn mlop_log() {
 
 #[test]
 fn mlop_exp() {
-    let mut t = Tensor::<Cpu>::from_vec([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    let mut t = Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
     t.require_grad = true;
     let mut x = t.exp();
 
@@ -1361,7 +1361,7 @@ fn mlop_exp() {
 
 #[test]
 fn mlop_sqrt() {
-    let mut t = Tensor::<Cpu>::from_vec([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], [3, 3]);
+    let mut t = Tensor::<Cpu>::from_shape([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], [3, 3]);
     t.require_grad = true;
     let mut x = t.sqrt();
     approx_eq!(
@@ -1380,7 +1380,7 @@ fn mlop_sqrt() {
 
 #[test]
 fn mlop_sigmoid() {
-    let mut t = Tensor::<Cpu>::from_vec([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    let mut t = Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
     t.require_grad = true;
     let mut x = t.sigmoid();
     approx_eq!(
@@ -1416,7 +1416,7 @@ fn mlop_sigmoid() {
 
 #[test]
 fn mlop_sum() {
-    let mut t = Tensor::<Cpu>::from_vec(
+    let mut t = Tensor::<Cpu>::from_shape(
         [
             0.26894143,
             0.880797,
@@ -1443,7 +1443,7 @@ fn mlop_sum() {
 
 #[test]
 fn mlop_max() {
-    let mut t = Tensor::<Cpu>::from_vec([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    let mut t = Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
     t.require_grad = true;
     let mut x = t.max_all();
     approx_eq!(x, [8.0]);
@@ -1453,7 +1453,7 @@ fn mlop_max() {
         [0., 0., 0., 0., 0., 0., 0., 1., 0.]
     );
 
-    let mut t = Tensor::<Cpu>::from_vec([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    let mut t = Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
     t.require_grad = true;
     let mut x = t.max(0);
     approx_eq!(x, [4.0, 8.0, 6.0]);
@@ -1463,7 +1463,7 @@ fn mlop_max() {
         [0., 0., 0., 1., 0., 1., 0., 1., 0.]
     );
 
-    let mut t = Tensor::<Cpu>::from_vec([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    let mut t = Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
     t.require_grad = true;
     let mut x = t.max(1);
     approx_eq!(x, [2.0, 6.0, 8.0]);
@@ -1473,7 +1473,7 @@ fn mlop_max() {
         [0., 1., 0., 0., 0., 1., 0., 1., 0.]
     );
 
-    let mut t = Tensor::<Cpu>::from_vec([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    let mut t = Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
     t.require_grad = true;
     let mut x = t.max(2);
     approx_eq!(x, [-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0]);
@@ -1486,8 +1486,8 @@ fn mlop_max() {
 
 #[test]
 fn mlop_less() {
-    let mut t = Tensor::<Cpu>::from_vec([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
-    let mut b = Tensor::<Cpu>::from_vec([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], [3, 3]);
+    let mut t = Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    let mut b = Tensor::<Cpu>::from_shape([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], [3, 3]);
     let mut x = t._lt(&b);
     approx_eq!(x, [1., 0., 1., 0., 1., 0., 1., 0., 1.]);
     // less has no bwd pass
@@ -1495,8 +1495,8 @@ fn mlop_less() {
 
 #[test]
 fn mlop_add() {
-    let mut t = Tensor::<Cpu>::from_vec([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
-    let mut b = Tensor::<Cpu>::from_vec([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], [3, 3]);
+    let mut t = Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    let mut b = Tensor::<Cpu>::from_shape([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], [3, 3]);
     t.require_grad = true;
     b.require_grad = true;
     let mut x = (&t + &b);
@@ -1510,8 +1510,8 @@ fn mlop_add() {
 
 #[test]
 fn mlop_sub() {
-    let mut t = Tensor::<Cpu>::from_vec([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
-    let mut b = Tensor::<Cpu>::from_vec([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], [3, 3]);
+    let mut t = Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    let mut b = Tensor::<Cpu>::from_shape([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], [3, 3]);
     t.require_grad = true;
     b.require_grad = true;
     let mut x = (&t - &b);
@@ -1523,12 +1523,13 @@ fn mlop_sub() {
     );
 }
 
-//TODO: Should be done as soon as possible
-//
-// #[test]
-// fn mlop_mul() {
-//     todo!()
-// }
+#[test]
+fn mlop_mul() {
+    let a = Tensor::<Cpu>::empty([3]).const_like(4.0);
+    let b = Tensor::<Cpu>::empty([3]).const_like(0.5);
+    let out = a * b;
+    approx_eq!(out, [2.0, 2.0, 2.0]);
+}
 //
 // #[test]
 // fn mlop_div() {

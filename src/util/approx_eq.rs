@@ -1,3 +1,4 @@
+#[macro_export]
 macro_rules! approx_eq {
     ($Lhs:expr, $Rhs:expr) => {{
         let lhs = $Lhs.to_vec();
@@ -14,4 +15,3 @@ macro_rules! approx_eq {
             .for_each(|(l, r)| assert!(float_cmp::approx_eq!(f32, *l, *r, ulps = $Tolerance), "{l} != {r}"));
     }};
 }
-pub(crate) use approx_eq;

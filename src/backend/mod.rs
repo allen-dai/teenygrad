@@ -10,7 +10,7 @@ pub trait Backend: 'static + core::fmt::Debug + Clone + Send + Sync {
     type Buffer: 'static + core::fmt::Debug + Clone + Send + Sync;
 
     // load ops
-    fn from_vec(data: Vec<Self::Dtype>, shape: &Shape) -> Self;
+    fn from(data: &[Self::Dtype]) -> Self;
     fn to_vec(&self) -> Vec<Self::Dtype>;
     fn empty(shape: &Shape) -> Self;
     fn const_like(&self, const_: Self::Dtype) -> Self;
@@ -48,11 +48,6 @@ pub trait Backend: 'static + core::fmt::Debug + Clone + Send + Sync {
     fn strides(&self) -> Shape;
 
     fn contiguous(&self) -> Self;
-    // fn slice(buffer: &Self, s: usize, e: usize) -> &[Self::Dtype];
-    // fn at(buffer: &Self, idx: usize) -> Self::Dtype;
-    // fn as_ptr(&self) -> *const Self::Dtype;
-    // fn raw_ptr(&self) -> *const Self::Buffer;
-    // fn set_stride<S: Into<Shape>>(&mut self, shape: S);
 
     fn col_i(&self, mut idx: usize) -> usize {
         let mut out = 0;

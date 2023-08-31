@@ -4,7 +4,7 @@ use super::Backend;
 use crate::prelude::*;
 
 #[derive(Debug, Clone)]
-pub struct CpuBuffer<T: Dtype = f32>(VecDeque<T>);
+pub struct CpuBuffer<T: Dtype = f32>(Vec<T>);
 
 pub struct Cpu<T: Dtype = f32> {
     buffer: Arc<CpuBuffer<T>>,
@@ -29,7 +29,7 @@ impl<T: Dtype> core::fmt::Debug for Cpu<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for i in 0..self.shape.numel() {
             //write!(f, "{:<12?}", self_idx);
-            write!(f, "{:<10.6?}", self.buffer.0[self.row_i(i)])?;
+            write!(f, "{:<14?}", self.buffer.0[self.row_i(i)])?;
             if (i + 1) % self.shape[self.shape.len() - 1] == 0 {
                 write!(f, "\n")?;
             }
@@ -49,18 +49,10 @@ impl<T: Dtype> core::fmt::Debug for Cpu<T> {
 }
 
 impl<T: Dtype> core::ops::Deref for Cpu<T> {
-    type Target = VecDeque<T>;
+    type Target = Vec<T>;
 
     fn deref(&self) -> &Self::Target {
         &self.buffer.0
-    }
-}
-
-impl<T: Dtype> core::ops::DerefMut for Cpu<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut Arc::get_mut(&mut self.buffer)
-            .expect("Only one mutable reference")
-            .0
     }
 }
 
@@ -68,11 +60,11 @@ impl<T: Dtype> Backend for Cpu<T> {
     type Dtype = T;
     type Buffer = CpuBuffer<T>;
 
-    fn from_vec(data: Vec<Self::Dtype>, shape: &Shape) -> Self {
+    fn from(data: &[Self::Dtype]) -> Self {
         Cpu {
-            buffer: Arc::new(CpuBuffer(data.into())),
-            shape: shape.clone(),
-            stride: shape.strides(),
+            buffer: Arc::new(CpuBuffer(data.to_vec().into())),
+            shape: [data.len()].into(),
+            stride: [1].into(),
         }
     }
 
@@ -86,7 +78,7 @@ impl<T: Dtype> Backend for Cpu<T> {
 
     fn empty(shape: &Shape) -> Self {
         Cpu {
-            buffer: Arc::new(CpuBuffer(VecDeque::new())),
+            buffer: Arc::new(CpuBuffer(Vec::new())),
             shape: shape.clone(),
             stride: shape.strides(),
         }
@@ -321,7 +313,8 @@ impl<T: Dtype> Backend for Cpu<T> {
         };
         let mut new_shape = self.shape().clone();
         new_shape.dims.remove(axis);
-        let mut out = Self::empty(&new_shape).const_like(T::zero());
+        // let mut out = Self::empty(&new_shape).const_like(T::zero());
+        let mut out_inner_vec = vec![T::zero();new_shape.numel()];
         let numel_of_reduce_dim = if axis == self.shape.len() - 1 {
             *self.shape.dims.last().unwrap()
         } else {
@@ -341,15 +334,17 @@ impl<T: Dtype> Backend for Cpu<T> {
                     base += numel_of_reduce_dim;
                     idx = base;
                 }
-                out[idx] += self.buffer.0[self.row_i(i)];
+                out_inner_vec[idx] += self.buffer.0[self.row_i(i)];
                 idx += 1;
             } else {
-                out[idx] += self.buffer.0[self.row_i(i)];
+                out_inner_vec[idx] += self.buffer.0[self.row_i(i)];
                 if (i + 1) % numel_of_reduce_dim == 0 {
                     idx += 1;
                 }
             }
         }
+        let mut out = Self::empty(&new_shape);
+        out.buffer = Arc::new(CpuBuffer(out_inner_vec.into()));
         if keepdim {
             let mut keepdim_shape = self.shape.clone();
             keepdim_shape[axis] = 1;
@@ -382,7 +377,8 @@ impl<T: Dtype> Backend for Cpu<T> {
         };
         let mut new_shape = self.shape().clone();
         new_shape.dims.remove(axis);
-        let mut out = Self::empty(&new_shape).const_like(T::min_value());
+        // let mut out = Self::empty(&new_shape).const_like(T::min_value());
+        let mut out_inner_vec = vec![T::min_value();new_shape.numel()];
         let numel_of_reduce_dim = if axis == self.shape.len() - 1 {
             *self.shape.dims.last().unwrap()
         } else {
@@ -402,15 +398,17 @@ impl<T: Dtype> Backend for Cpu<T> {
                     base += numel_of_reduce_dim;
                     idx = base;
                 }
-                out[idx] = T::max(out[idx], self.buffer.0[self.row_i(i)]);
+                out_inner_vec[idx] = T::max(out_inner_vec[idx], self.buffer.0[self.row_i(i)]);
                 idx += 1;
             } else {
-                out[idx] = T::max(out[idx], self.buffer.0[self.row_i(i)]);
+                out_inner_vec[idx] = T::max(out_inner_vec[idx], self.buffer.0[self.row_i(i)]);
                 if (i + 1) % numel_of_reduce_dim == 0 {
                     idx += 1;
                 }
             }
         }
+        let mut out = Self::empty(&new_shape);
+        out.buffer = Arc::new(CpuBuffer(out_inner_vec.into()));
         if keepdim {
             let mut keepdim_shape = self.shape.clone();
             keepdim_shape[axis] = 1;
@@ -476,6 +474,10 @@ impl<T: Dtype> Backend for Cpu<T> {
             // println!("reshape copied mem");
             out.buffer = Self::contiguous(&self).buffer.clone();
         }
+        assert!(
+            self.buffer.0.len() <= self.shape().numel(),
+            "Invalid shape, cannot reshape into smaller self"
+        );
         if self
             .shape
             .dims
@@ -521,7 +523,11 @@ impl<T: Dtype> Backend for Cpu<T> {
             .enumerate()
             .for_each(|(i, (l, r))| {
                 if l != r && *l != 1 {
-                    panic!("Can not expand to shape. From: {} To: {}",self.shape(), shape)
+                    panic!(
+                        "Can not expand to shape. From: {} To: {}",
+                        self.shape(),
+                        shape
+                    )
                 }
             });
 
@@ -556,7 +562,8 @@ impl<T: Dtype> Backend for Cpu<T> {
                 .map(|(_, aarg)| aarg.0.abs_diff(aarg.1))
                 .collect::<Vec<usize>>(),
         );
-        let mut out = Self::empty(&new_shape).const_like(T::zero());
+        //let mut out = Self::empty(&new_shape).const_like(T::zero());
+        let mut out_inner_vec = vec![T::zero();new_shape.numel()];
         let mut iter_shape = vec![0usize; self.shape.len()];
         let mut self_idx = 0;
 
@@ -569,7 +576,7 @@ impl<T: Dtype> Backend for Cpu<T> {
                 }
             }) {
                 // println!("{:?}", iter_shape);
-                out[self_idx] = self[self.row_i(i)];
+                out_inner_vec[self_idx] = self[self.row_i(i)];
                 self_idx += 1;
             }
             *iter_shape.last_mut().unwrap() += 1;
@@ -588,6 +595,8 @@ impl<T: Dtype> Backend for Cpu<T> {
                     }
                 });
         }
+        let mut out = Self::empty(&new_shape);
+        out.buffer = Arc::new(CpuBuffer(out_inner_vec.into()));
         out
     }
 
@@ -605,11 +614,12 @@ impl<T: Dtype> Backend for Cpu<T> {
                 .map(|(dim, aarg)| dim + aarg.0 + aarg.1)
                 .collect::<Vec<usize>>(),
         );
-        let mut out = Self::empty(&new_shape).const_like(const_value);
+        //let mut out = Self::empty(&new_shape).const_like(const_value);
+        let mut out_inner_vec = vec![const_value;new_shape.numel()];
         let mut iter_shape = vec![0usize; new_shape.len()];
         let mut self_idx = 0;
 
-        for i in 0..out.shape.numel() {
+        for i in 0..new_shape.numel() {
             if iter_shape.iter().enumerate().all(|(ii, d)| {
                 if *d >= arg[ii].0 && *d < arg[ii].0 + self.shape.dims[ii] {
                     true
@@ -618,7 +628,7 @@ impl<T: Dtype> Backend for Cpu<T> {
                 }
             }) {
                 // println!("{:?} {i}", iter_shape);
-                out[i] = self[self.row_i(self_idx)];
+                out_inner_vec[i] = self[self.row_i(self_idx)];
                 self_idx += 1;
             }
 
@@ -638,6 +648,8 @@ impl<T: Dtype> Backend for Cpu<T> {
                     }
                 });
         }
+        let mut out = Self::empty(&new_shape);
+        out.buffer = Arc::new(CpuBuffer(out_inner_vec.into()));
         out
     }
 
@@ -660,12 +672,4 @@ impl<T: Dtype> Backend for Cpu<T> {
             stride: self.shape.strides(),
         }
     }
-
-    // fn raw_ptr(&self) -> *const Self::Buffer {
-    //     &*(self.buffer) as *const Self::Buffer
-    // }
-    //
-    // fn set_stride<S: Into<Shape>>(&mut self, shape: S) {
-    //     self.stride = shape.into();
-    // }
 }

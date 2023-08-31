@@ -32,213 +32,124 @@ impl<B: Backend> core::fmt::Display for Tensor<B> {
     }
 }
 
-impl<B: Backend> core::ops::Add for Tensor<B> {
-    type Output = Tensor<B>;
+macro_rules! core_impl {
+    ($op:tt, $fn:tt) => {
+        impl<B: Backend> core::ops::$op for Tensor<B> {
+            type Output = Tensor<B>;
+            fn $fn(self, rhs: Self) -> Self::Output {
+                Tensor::$fn(&self, &rhs)
+            }
+        }
 
-    fn add(self, rhs: Self) -> Self::Output {
-        Tensor::_add(&self, &rhs)
-    }
+        impl<B: Backend> core::ops::$op<&Tensor<B>> for Tensor<B> {
+            type Output = Tensor<B>;
+            fn $fn(self, rhs: &Tensor<B>) -> Self::Output {
+                Tensor::$fn(&self, rhs)
+            }
+        }
+
+        impl<B: Backend> core::ops::$op for &Tensor<B> {
+            type Output = Tensor<B>;
+            fn $fn(self, rhs: Self) -> Self::Output {
+                Tensor::$fn(self, rhs)
+            }
+        }
+    };
 }
 
-impl<B: Backend> core::ops::Add for &Tensor<B> {
-    type Output = Tensor<B>;
+core_impl!(Add, add);
+core_impl!(Sub, sub);
+core_impl!(Mul, mul);
+core_impl!(Div, div);
 
-    fn add(self, rhs: Self) -> Self::Output {
-        Tensor::_add(self, rhs)
-    }
+macro_rules! core_impl_num {
+    ($op:tt, $fn:tt, $t:ty, $from:ident) => {
+
+        impl<B: Backend> core::ops::$op<$t> for Tensor<B> {
+            type Output = Tensor<B>;
+            fn $fn(self, rhs: $t) -> Self::Output {
+                let rhs = Tensor::from([B::Dtype::$from(rhs).unwrap()]);
+                Tensor::$fn(&self, &rhs)
+            }
+        }
+
+        impl<B: Backend> core::ops::$op<$t> for &Tensor<B> {
+            type Output = Tensor<B>;
+            fn $fn(self, rhs: $t) -> Self::Output {
+                let rhs = Tensor::from([B::Dtype::$from(rhs).unwrap()]);
+                Tensor::$fn(self, &rhs)
+            }
+        }
+
+        impl<B: Backend> core::ops::$op<&$t> for Tensor<B> {
+            type Output = Tensor<B>;
+            fn $fn(self, rhs: &$t) -> Self::Output {
+                let rhs = Tensor::from([B::Dtype::$from(*rhs).unwrap()]);
+                Tensor::$fn(&self, &rhs)
+            }
+        }
+
+        impl<B: Backend> core::ops::$op<&$t> for &Tensor<B> {
+            type Output = Tensor<B>;
+            fn $fn(self, rhs: &$t) -> Self::Output {
+                let rhs = Tensor::from([B::Dtype::$from(*rhs).unwrap()]);
+                Tensor::$fn(&self, &rhs)
+            }
+        }
+
+        impl<B: Backend> core::ops::$op<Tensor<B>> for $t {
+            type Output = Tensor<B>;
+            fn $fn(self, rhs: Tensor<B>) -> Self::Output {
+                let lhs = Tensor::from([B::Dtype::$from(self).unwrap()]);
+                Tensor::$fn(&lhs, &rhs)
+            }
+        }
+
+        impl<B: Backend> core::ops::$op<Tensor<B>> for &$t {
+            type Output = Tensor<B>;
+            fn $fn(self, rhs: Tensor<B>) -> Self::Output {
+                let lhs = Tensor::from([B::Dtype::$from(*self).unwrap()]);
+                Tensor::$fn(&lhs, &rhs)
+            }
+        }
+
+        impl<B: Backend> core::ops::$op<&Tensor<B>> for $t {
+            type Output = Tensor<B>;
+            fn $fn(self, rhs: &Tensor<B>) -> Self::Output {
+                let lhs = Tensor::from([B::Dtype::$from(self).unwrap()]);
+                Tensor::$fn(&lhs, &rhs)
+            }
+        }
+
+        impl<B: Backend> core::ops::$op<&Tensor<B>> for &$t {
+            type Output = Tensor<B>;
+            fn $fn(self, rhs: &Tensor<B>) -> Self::Output {
+                let lhs = Tensor::from([B::Dtype::$from(*self).unwrap()]);
+                Tensor::$fn(&lhs, rhs)
+            }
+        }
+    };
 }
 
-impl<B: Backend, F: num_traits::Float> core::ops::Add<F> for Tensor<B> {
-    type Output = Tensor<B>;
+core_impl_num!(Add, add, f32, from_f32);
+core_impl_num!(Sub, sub, f32, from_f32);
+core_impl_num!(Mul, mul, f32, from_f32);
+core_impl_num!(Div, div, f32, from_f32);
 
-    fn add(self, rhs: F) -> Self::Output {
-        let rhs = Tensor::from_vec(
-            [B::Dtype::from_f64(rhs.to_f64().unwrap()).unwrap()],
-            Shape::from([1]),
-        );
-        Tensor::_add(&self, &rhs)
-    }
-}
+core_impl_num!(Add, add, f64, from_f64);
+core_impl_num!(Sub, sub, f64, from_f64);
+core_impl_num!(Mul, mul, f64, from_f64);
+core_impl_num!(Div, div, f64, from_f64);
 
-impl<B: Backend, F: num_traits::Float> core::ops::Add<F> for &Tensor<B> {
-    type Output = Tensor<B>;
+core_impl_num!(Add, add, i32, from_i32);
+core_impl_num!(Sub, sub, i32, from_i32);
+core_impl_num!(Mul, mul, i32, from_i32);
+core_impl_num!(Div, div, i32, from_i32);
 
-    fn add(self, rhs: F) -> Self::Output {
-        let rhs = Tensor::from_vec(
-            [B::Dtype::from_f64(rhs.to_f64().unwrap()).unwrap()],
-            Shape::from([1]),
-        );
-        Tensor::_add(self, &rhs)
-    }
-}
-
-impl<B: Backend, F: num_traits::Float> core::ops::Add<F> for &mut Tensor<B> {
-    type Output = Tensor<B>;
-
-    fn add(self, rhs: F) -> Self::Output {
-        let rhs = Tensor::from_vec(
-            [B::Dtype::from_f64(rhs.to_f64().unwrap()).unwrap()],
-            Shape::from([1]),
-        );
-        Tensor::_add(self, &rhs)
-    }
-}
-
-impl<B: Backend> core::ops::Sub for Tensor<B> {
-    type Output = Tensor<B>;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        Tensor::_sub(&self, &rhs)
-    }
-}
-
-impl<B: Backend> core::ops::Sub for &Tensor<B> {
-    type Output = Tensor<B>;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        Tensor::_sub(self, rhs)
-    }
-}
-
-impl<B: Backend, F: num_traits::Float> core::ops::Sub<F> for Tensor<B> {
-    type Output = Tensor<B>;
-
-    fn sub(self, rhs: F) -> Self::Output {
-        let rhs = Tensor::from_vec(
-            [B::Dtype::from_f64(rhs.to_f64().unwrap()).unwrap()],
-            Shape::from([1]),
-        );
-        Tensor::_sub(&self, &rhs)
-    }
-}
-
-impl<B: Backend, F: num_traits::Float> core::ops::Sub<F> for &Tensor<B> {
-    type Output = Tensor<B>;
-
-    fn sub(self, rhs: F) -> Self::Output {
-        let rhs = Tensor::from_vec(
-            [B::Dtype::from_f64(rhs.to_f64().unwrap()).unwrap()],
-            Shape::from([1]),
-        );
-        Tensor::_sub(self, &rhs)
-    }
-}
-
-impl<B: Backend, F: num_traits::Float> core::ops::Sub<F> for &mut Tensor<B> {
-    type Output = Tensor<B>;
-
-    fn sub(self, rhs: F) -> Self::Output {
-        let rhs = Tensor::from_vec(
-            [B::Dtype::from_f64(rhs.to_f64().unwrap()).unwrap()],
-            Shape::from([1]),
-        );
-        Tensor::_sub(self, &rhs)
-    }
-}
-
-impl<B: Backend> core::ops::Mul for Tensor<B> {
-    type Output = Tensor<B>;
-
-    fn mul(self, rhs: Self) -> Self::Output {
-        Tensor::_mul(&self, &rhs)
-    }
-}
-
-impl<B: Backend> core::ops::Mul for &Tensor<B> {
-    type Output = Tensor<B>;
-
-    fn mul(self, rhs: Self) -> Self::Output {
-        Tensor::_mul(self, rhs)
-    }
-}
-
-impl<B: Backend, F: num_traits::Float> core::ops::Mul<F> for Tensor<B> {
-    type Output = Tensor<B>;
-
-    fn mul(self, rhs: F) -> Self::Output {
-        let rhs = Tensor::from_vec(
-            [B::Dtype::from_f64(rhs.to_f64().unwrap()).unwrap()],
-            Shape::from([1]),
-        );
-        Tensor::_mul(&self, &rhs)
-    }
-}
-
-impl<B: Backend, F: num_traits::Float> core::ops::Mul<F> for &Tensor<B> {
-    type Output = Tensor<B>;
-
-    fn mul(self, rhs: F) -> Self::Output {
-        let rhs = Tensor::from_vec(
-            [B::Dtype::from_f64(rhs.to_f64().unwrap()).unwrap()],
-            Shape::from([1]),
-        );
-        Tensor::_mul(self, &rhs)
-    }
-}
-
-impl<B: Backend, F: num_traits::Float> core::ops::Mul<F> for &mut Tensor<B> {
-    type Output = Tensor<B>;
-
-    fn mul(self, rhs: F) -> Self::Output {
-        let rhs = Tensor::from_vec(
-            [B::Dtype::from_f64(rhs.to_f64().unwrap()).unwrap()],
-            Shape::from([1]),
-        );
-        Tensor::_mul(self, &rhs)
-    }
-}
-
-impl<B: Backend> core::ops::Div for Tensor<B> {
-    type Output = Tensor<B>;
-
-    fn div(self, rhs: Self) -> Self::Output {
-        Tensor::_div(&self, &rhs)
-    }
-}
-
-impl<B: Backend> core::ops::Div for &Tensor<B> {
-    type Output = Tensor<B>;
-
-    fn div(self, rhs: Self) -> Self::Output {
-        Tensor::_div(self, rhs)
-    }
-}
-
-impl<B: Backend, F: num_traits::Float> core::ops::Div<F> for Tensor<B> {
-    type Output = Tensor<B>;
-
-    fn div(self, rhs: F) -> Self::Output {
-        let rhs = Tensor::from_vec(
-            [B::Dtype::from_f64(rhs.to_f64().unwrap()).unwrap()],
-            Shape::from([1]),
-        );
-        Tensor::_div(&self, &rhs)
-    }
-}
-
-impl<B: Backend, F: num_traits::Float> core::ops::Div<F> for &Tensor<B> {
-    type Output = Tensor<B>;
-
-    fn div(self, rhs: F) -> Self::Output {
-        let rhs = Tensor::from_vec(
-            [B::Dtype::from_f64(rhs.to_f64().unwrap()).unwrap()],
-            Shape::from([1]),
-        );
-        Tensor::_div(self, &rhs)
-    }
-}
-
-impl<B: Backend, F: num_traits::Float> core::ops::Div<F> for &mut Tensor<B> {
-    type Output = Tensor<B>;
-
-    fn div(self, rhs: F) -> Self::Output {
-        let rhs = Tensor::from_vec(
-            [B::Dtype::from_f64(rhs.to_f64().unwrap()).unwrap()],
-            Shape::from([1]),
-        );
-        Tensor::_div(self, &rhs)
-    }
-}
+core_impl_num!(Add, add, usize, from_usize);
+core_impl_num!(Sub, sub, usize, from_usize);
+core_impl_num!(Mul, mul, usize, from_usize);
+core_impl_num!(Div, div, usize, from_usize);
 
 impl<B: Backend> core::ops::Neg for Tensor<B> {
     type Output = Tensor<B>;

@@ -3,14 +3,11 @@ pub mod dtype;
 pub mod id;
 pub mod mlops;
 pub mod shape;
+use crate::prelude::*;
+use id::{tensor_id, TensorId};
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;
-
-use crate::backend::Backend;
-use crate::prelude::*;
-
-use id::{tensor_id, TensorId};
 
 #[derive(Clone)]
 pub struct Tensor<B: Backend> {
@@ -33,6 +30,10 @@ impl<B: Backend> Tensor<B> {
     }
 
     pub fn dtype(&self) -> String {
+        //WARN: This should always return dtype name like bf16 f16 f32 f64...
+        //      We are matching this string for safetensor. yeah should find a better way
+        //      but im too lazy atm. Attaching safetensor own Dtype in our Dtype impl isnt great
+        //      either.
         std::any::type_name::<B::Dtype>().to_string()
     }
 
@@ -54,12 +55,9 @@ impl<B: Backend> Tensor<B> {
         }
     }
 
-    pub fn from_vec<V: Into<Vec<B::Dtype>>, S: Into<Shape>>(data: V, shape: S) -> Self {
-        let shape = shape.into();
-        let data = data.into();
-        assert!(data.len() == shape.numel());
+    pub fn from<V: Into<Vec<B::Dtype>>>(data: V) -> Self {
         Self {
-            inner: B::from_vec(data, &shape),
+            inner: B::from(&data.into()),
             require_grad: false,
             _ctx: None,
             id: tensor_id(),
@@ -67,11 +65,35 @@ impl<B: Backend> Tensor<B> {
         }
     }
 
+    pub fn from_shape<V: Into<Vec<B::Dtype>>, S: Into<Shape>>(data: V, shape: S) -> Self {
+        Self::from(data).reshape(shape.into())
+    }
+
     pub fn to_vec(&self) -> Vec<B::Dtype> {
         self.inner.to_vec()
     }
 
     // ------------ Load
+    pub fn empty<S: Into<Shape>>(shape: S) -> Self {
+        Self {
+            inner: B::empty(&shape.into()),
+            require_grad: false,
+            _ctx: None,
+            id: tensor_id(),
+            grad: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    pub fn const_like<D: Into<B::Dtype>>(&self, const_value: D) -> Self {
+        Self {
+            inner: B::empty(&self.shape()).const_like(const_value.into()),
+            require_grad: false,
+            _ctx: None,
+            id: tensor_id(),
+            grad: Arc::new(Mutex::new(None)),
+        }
+    }
+
     pub fn zeros<S: Into<Shape>>(shape: S) -> Self {
         Self {
             inner: B::empty(&shape.into()).const_like(B::Dtype::zero()),
@@ -106,9 +128,8 @@ impl<B: Backend> Tensor<B> {
         let shape = shape.into();
         let mut ret = Self::rand(shape.clone());
         let mut sec_ = Self::rand(shape.clone());
-        //return src[0].mul(2*math.pi).cos().mul( (1 - src[1]).log().mul(-2).sqrt()).cast(Tensor.default_type if dtype is None else dtype)
-        ret = ret * (B::Dtype::PI * B::Dtype::from_f32(2.0).unwrap());
-        ret = ret.cos() * ((-sec_ + 1.0).log() * 2.0).sqrt();
+        ret = ret * (core::f64::consts::PI * 2.0);
+        ret = ret.cos() * ((1.0f32 - sec_).log() * -2.0f32).sqrt();
         ret
     }
 
@@ -145,6 +166,14 @@ impl<B: Backend> Tensor<B> {
 
     pub fn kaiming_normal<S: Into<Shape>>(shape: S) -> Self {
         todo!()
+    }
+
+    pub fn dropout(self, p: Option<f32>) -> Self {
+        // mask = (Tensor.rand(*self.shape, requires_grad=False, device=self.device) >= p).cast(dtypes.bool)
+        // return self * mask * (1/(1.0 - p))
+        let p = if p.is_some() { p.unwrap() } else { 0.2 };
+        let mask = Self::rand(self.shape())._ge(&Tensor::from([B::Dtype::from_f32(p).unwrap()]));
+        self * mask * (1.0 / (1.0 - p))
     }
 
     // ------------ Movement
@@ -238,8 +267,22 @@ impl<B: Backend> Tensor<B> {
         Relu::default().apply(self, None, None, None, None)
     }
 
+    pub fn leakyrelu(&self, neg_slope: Option<f32>) -> Self {
+        let neg_slope = if neg_slope.is_none() {
+            0.01
+        } else {
+            neg_slope.unwrap()
+        };
+        self.relu() - (-neg_slope * self).relu()
+    }
+
     pub fn sigmoid(&self) -> Self {
         Sigmoid::default().apply(self, None, None, None, None)
+    }
+
+    pub fn tanh(&self) -> Self {
+        // 2.0 * ((2.0 * self).sigmoid()) - 1.0
+        2.0 * ((2.0f32 * self).sigmoid()) - 1.0
     }
 
     pub fn _softmax(&self, axis: isize) -> (Self, Self, Self) {
@@ -264,7 +307,7 @@ impl<B: Backend> Tensor<B> {
     }
 
     pub fn cos(&self) -> Self {
-        (-self + B::Dtype::PI / B::Dtype::from_f32(2.0).unwrap()).sin()
+        (-self + core::f64::consts::PI / 2.0).sin()
     }
 
     pub fn sqrt(&self) -> Self {
@@ -339,6 +382,40 @@ impl<B: Backend> Tensor<B> {
 
     pub fn max_all(&self) -> Self {
         self.reshape([self.shape().numel()]).max_keepdim(0)
+    }
+
+    pub fn _argmax(&self, axis: Option<isize>, keepdim: bool) -> Self {
+        if axis.is_none() {
+            let idx = (self._eq(&self.max_all()))
+                * Self::_arange(self.numel() - 1., -1., -1.).reshape(self.shape());
+            return self.numel() - idx.max_all() - 1;
+        }
+        let mut axis = axis.unwrap();
+        axis = axis + if axis < 0 { self.ndim() as isize } else { axis };
+        let m = self._eq(&self.max_keepdim(axis));
+        let idx = m * Self::_arange(self.shape()[axis] as f64 - 1., -1., -1.).reshape(
+            [
+                vec![self.shape()[axis]],
+                vec![1; self.ndim() - axis as usize - 1],
+            ]
+            .concat(),
+        );
+        if keepdim {
+            return self.shape()[axis] - idx.max_keepdim(axis) - 1;
+        }
+        self.shape()[axis] - idx.max(axis) - 1
+    }
+
+    pub fn argmax(&self, axis: isize) -> Self {
+        self._argmax(Some(axis), false)
+    }
+
+    pub fn argmax_keepdim(&self, axis: isize, keepdim: bool) -> Self {
+        self._argmax(Some(axis), true)
+    }
+
+    pub fn argmax_all(&self) -> Self {
+        self._argmax(None, false)
     }
 
     pub fn matmul(&self, w: &Self) -> Self {
@@ -779,7 +856,7 @@ impl<B: Backend> Tensor<B> {
         }
     }
 
-    pub fn _add(&self, rhs: &Self) -> Self {
+    pub fn add(&self, rhs: &Self) -> Self {
         let (a, b) = Tensor::_broadcast(&self, &rhs);
         Add::<B> {
             need_input_grad: [a.require_grad, b.require_grad],
@@ -788,7 +865,7 @@ impl<B: Backend> Tensor<B> {
         .apply(&a, Some(&b), None, None, None)
     }
 
-    pub fn _sub(&self, rhs: &Self) -> Self {
+    pub fn sub(&self, rhs: &Self) -> Self {
         let (a, b) = Tensor::_broadcast(&self, &rhs);
         Sub::<B> {
             need_input_grad: [a.require_grad, b.require_grad],
@@ -797,7 +874,7 @@ impl<B: Backend> Tensor<B> {
         .apply(&a, Some(&b), None, None, None)
     }
 
-    pub fn _mul(&self, rhs: &Self) -> Self {
+    pub fn mul(&self, rhs: &Self) -> Self {
         let (a, b) = Tensor::_broadcast(&self, &rhs);
         Mul::<B> {
             need_input_grad: [a.require_grad, b.require_grad],
@@ -806,7 +883,7 @@ impl<B: Backend> Tensor<B> {
         .apply(&a, Some(&b), None, None, None)
     }
 
-    pub fn _div(&self, rhs: &Self) -> Self {
+    pub fn div(&self, rhs: &Self) -> Self {
         let (a, b) = Tensor::_broadcast(&self, &rhs);
         Div::<B> {
             need_input_grad: [a.require_grad, b.require_grad],
@@ -834,13 +911,13 @@ impl<B: Backend> Tensor<B> {
     pub fn full<S: Into<Shape>>(shape: S, const_: B::Dtype) -> Self {
         let shape = shape.into();
         //panic!("in _full to_shape:{}", shape);
-        Self::from_vec([const_], [1])
+        Self::from_shape([const_], [1])
             .reshape(vec![1; shape.len()])
             .expand(shape)
     }
     pub fn full_like(&self, const_: B::Dtype) -> Self {
         let shape = self.shape();
-        Self::from_vec([const_], [1])
+        Self::from_shape([const_], [1])
             .reshape(vec![1; shape.len()])
             .expand(shape)
     }
@@ -863,6 +940,7 @@ impl<B: Backend> Tensor<B> {
             .transpose(axis, -1)
     }
 
+    // self is pred
     pub fn sparse_categorical_crossentropy(&self, y: &Self) -> Self {
         let loss_mark = y._ne(&y.full_like(B::Dtype::from_f32(-1.0).unwrap()));
         //y_counter = Tensor.arange(self.shape[-1], requires_grad=False, device=self.device).unsqueeze(0).expand(Y.numel(), self.shape[-1])
@@ -882,6 +960,24 @@ impl<B: Backend> Tensor<B> {
         (self.log_softmax() * yy).sum_all() / loss_mark.sum_all()
     }
 
+    pub fn bceloss(&self, y: &Self) -> Self {
+        (y * &(self + 1e-7f32).log() + (1.0f32 - y) * (1f32 + 1e-7f32 - self).log()).sum_all()
+            / self.shape()[0]
+    }
+
+    pub fn clip(&self, min: f64, max: f64) -> Self {
+        self.maximum(&Tensor::from([B::Dtype::from_f64(min).unwrap()]))
+            .minimum(&Tensor::from([B::Dtype::from_f64(max).unwrap()]))
+    }
+
+    pub fn maximum(&self, x: &Self) -> Self {
+        self._lt(x)
+            .detach()
+            ._where_(x, &self._gt(x).detach()._where_(self, &((self + x) / 2)))
+    }
+    pub fn minimum(self, x: &Self) -> Self {
+        -((-self).maximum(&-x))
+    }
     pub fn unsqueeze(&self, dim: isize) -> Self {
         let dim = if dim < 0 {
             (self.shape().len() as isize + dim + 1) as usize
@@ -908,14 +1004,13 @@ impl<B: Backend> Tensor<B> {
         self.reshape(new_shape)
     }
 
-    pub fn _eq(&self, rhs: &Self) -> Self {
-        // 1.0 - self
-        -Self::_ne(self, rhs) + 1.0
-    }
-
     pub fn _lt(&self, rhs: &Self) -> Self {
         let (a, b) = Tensor::_broadcast(&self, &rhs);
         Less::default().apply(&a, Some(&b), None, None, None)
+    }
+
+    pub fn _le(&self, rhs: &Self) -> Self {
+        1.0 - (self._gt(&rhs))
     }
 
     pub fn _gt(&self, rhs: &Self) -> Self {
@@ -923,13 +1018,21 @@ impl<B: Backend> Tensor<B> {
         Less::default().apply(&a, Some(&b), None, None, None)
     }
 
+    pub fn _ge(&self, rhs: &Self) -> Self {
+        1.0 - (self._lt(&rhs))
+    }
+
+    pub fn _eq(&self, rhs: &Self) -> Self {
+        1.0 - (self._ne(rhs))
+    }
+
     pub fn _ne(&self, rhs: &Self) -> Self {
-        Self::_lt(self, rhs) + Self::_gt(self, rhs)
+        self._lt(rhs) + self._gt(rhs)
     }
 
     pub fn _where(&self, y: f64, z: f64) -> Self {
-        let y = Self::from_vec([B::Dtype::from_f64(y).unwrap()], [1]);
-        let z = Self::from_vec([B::Dtype::from_f64(z).unwrap()], [1]);
+        let y = Self::from_shape([B::Dtype::from_f64(y).unwrap()], [1]);
+        let z = Self::from_shape([B::Dtype::from_f64(z).unwrap()], [1]);
         self._where_(&y, &z)
     }
 
@@ -979,7 +1082,7 @@ impl<B: Backend> Tensor<B> {
 fn sum_axis() {
     use crate::prelude::*;
     let n = 2 * 3;
-    let mut t = Tensor::<Cpu>::from_vec(
+    let mut t = Tensor::<Cpu>::from_shape(
         (1..n + 1)
             .map(|e| f32::from_usize(e).unwrap())
             .collect::<Vec<f32>>(),
@@ -989,7 +1092,7 @@ fn sum_axis() {
     assert!(vec![6.0f32, 15.0f32] == y.to_vec());
 
     let n = 4 * 2 * 3 * 3;
-    let mut t = Tensor::<Cpu>::from_vec(
+    let mut t = Tensor::<Cpu>::from_shape(
         (1..n + 1)
             .map(|e| f32::from_usize(e).unwrap())
             .collect::<Vec<f32>>(),
@@ -1029,25 +1132,25 @@ fn sum_axis() {
         ] == y.to_vec()
     );
 
-    let a = Tensor::<Cpu>::from_vec([2., 2., 2.], [3]);
+    let a = Tensor::<Cpu>::from_shape([2., 2., 2.], [3]);
     assert!(vec![6.] == a.sum_all().to_vec())
 }
 
 #[test]
 fn matmul() {
-    let a = Tensor::<Cpu>::from_vec([1., 2., 3., 4., 5., 6.], [2, 3]);
-    let b = Tensor::<Cpu>::from_vec([10., 11., 20., 21., 30., 31.], [3, 2]);
+    let a = Tensor::<Cpu>::from_shape([1., 2., 3., 4., 5., 6.], [2, 3]);
+    let b = Tensor::<Cpu>::from_shape([10., 11., 20., 21., 30., 31.], [3, 2]);
     &a + 1.0;
     let y = a.matmul(&b);
     assert!(vec![140., 146., 320., 335.] == y.to_vec());
 
-    let a = Tensor::<Cpu>::from_vec(
+    let a = Tensor::<Cpu>::from_shape(
         (1..=4 * 9)
             .map(|e| f32::from_usize(e).unwrap())
             .collect::<Vec<f32>>(),
         [4, 9],
     );
-    let b = Tensor::<Cpu>::from_vec(
+    let b = Tensor::<Cpu>::from_shape(
         (1..=9 * 2)
             .map(|e| f32::from_usize(e).unwrap())
             .collect::<Vec<f32>>(),
@@ -1060,7 +1163,7 @@ fn matmul() {
 #[test]
 fn pool() {
     let n = 9;
-    let mut a = Tensor::<Cpu>::from_vec(
+    let mut a = Tensor::<Cpu>::from_shape(
         (1..=n * n)
             .map(|e| f32::from_usize(e).unwrap())
             .collect::<Vec<f32>>(),
@@ -1103,13 +1206,13 @@ fn pool() {
 
 #[test]
 fn conv2d() {
-    let mut a = Tensor::<Cpu>::from_vec(
+    let mut a = Tensor::<Cpu>::from_shape(
         (1..=9 * 9)
             .map(|e| f32::from_usize(e).unwrap())
             .collect::<Vec<f32>>(),
         [1, 1, 9, 9],
     );
-    let mut k = Tensor::<Cpu>::from_vec(
+    let mut k = Tensor::<Cpu>::from_shape(
         (1..=3 * 3)
             .map(|e| f32::from_usize(e).unwrap())
             .collect::<Vec<f32>>(),
@@ -1127,19 +1230,19 @@ fn conv2d() {
 
     let (cin, cout, conv) = (3, 3, 3);
 
-    let mut a2 = Tensor::<Cpu>::from_vec(
+    let mut a2 = Tensor::<Cpu>::from_shape(
         (1..=cin * 6 * 6)
             .map(|e| f32::from_usize(e).unwrap())
             .collect::<Vec<f32>>(),
         [cin, 1, 6, 6],
     );
-    let mut k2 = Tensor::<Cpu>::from_vec(
+    let mut k2 = Tensor::<Cpu>::from_shape(
         (1..=cin * conv * conv)
             .map(|e| f32::from_usize(e).unwrap())
             .collect::<Vec<f32>>(),
         [cin, 1, conv, conv],
     );
-    let mut k3 = Tensor::<Cpu>::from_vec(
+    let mut k3 = Tensor::<Cpu>::from_shape(
         (1..=cout * cin * conv * conv)
             .map(|e| f32::from_usize(e).unwrap())
             .collect::<Vec<f32>>(),
@@ -1167,47 +1270,47 @@ fn conv2d() {
 
 #[test]
 fn sparse_categorical_crossentropy() {
-    let y = Tensor::<Cpu>::from_vec([1.0, 2.0], [2]);
-    let out = Tensor::<Cpu>::from_vec([0.05, 0.95, 0., 0.1, 0.8, 0.1], [6]);
+    let y = Tensor::<Cpu>::from_shape([1.0, 2.0], [2]);
+    let out = Tensor::<Cpu>::from_shape([0.05, 0.95, 0., 0.1, 0.8, 0.1], [6]);
     let loss = out.sparse_categorical_crossentropy(&y);
     approx_eq!(loss, [1.7302881]);
-    let y = Tensor::<Cpu>::from_vec([-0.0, -0.0, -1., -0.1, -0.2, -0.3], [6]);
-    let out = Tensor::<Cpu>::from_vec([-0.05, -0.95, -0., -0.1, -0.8, -0.1], [6]);
+    let y = Tensor::<Cpu>::from_shape([-0.0, -0.0, -1., -0.1, -0.2, -0.3], [6]);
+    let out = Tensor::<Cpu>::from_shape([-0.05, -0.95, -0., -0.1, -0.8, -0.1], [6]);
     let loss = out.sparse_categorical_crossentropy(&y);
     approx_eq!(loss, [0.6301593]);
 }
 
 #[test]
 fn lt() {
-    let x = Tensor::<Cpu>::from_vec([1., 2., 3., 4., 5.], [5]);
-    let y = Tensor::<Cpu>::from_vec([0., 2., 0., 4., 0.], [5]);
+    let x = Tensor::<Cpu>::from_shape([1., 2., 3., 4., 5.], [5]);
+    let y = Tensor::<Cpu>::from_shape([0., 2., 0., 4., 0.], [5]);
     let o = x._lt(&y);
     approx_eq!(o, [0., 0., 0., 0., 0.]);
-    let x = Tensor::<Cpu>::from_vec([1., 0., 3., 0., 5.], [5]);
-    let y = Tensor::<Cpu>::from_vec([0., 2., 0., 4., 0.], [5]);
+    let x = Tensor::<Cpu>::from_shape([1., 0., 3., 0., 5.], [5]);
+    let y = Tensor::<Cpu>::from_shape([0., 2., 0., 4., 0.], [5]);
     let o = x._lt(&y);
     approx_eq!(o, [0., 1., 0., 1., 0.]);
 }
 
 #[test]
 fn eq() {
-    let x = Tensor::<Cpu>::from_vec([1., 2., 3., 4., 5.], [5]);
-    let y = Tensor::<Cpu>::from_vec([0., 2., 0., 4., 0.], [5]);
+    let x = Tensor::<Cpu>::from_shape([1., 2., 3., 4., 5.], [5]);
+    let y = Tensor::<Cpu>::from_shape([0., 2., 0., 4., 0.], [5]);
     let o = x._eq(&y);
     approx_eq!(o, [0., 1., 0., 1., 0.]);
 }
 
 #[test]
 fn where_test() {
-    let x = Tensor::<Cpu>::from_vec([1., 2., 3., 4., 5.], [5]);
-    let y = Tensor::<Cpu>::from_vec([0., 2., 0., 4., 0.], [5]);
+    let x = Tensor::<Cpu>::from_shape([1., 2., 3., 4., 5.], [5]);
+    let y = Tensor::<Cpu>::from_shape([0., 2., 0., 4., 0.], [5]);
     let out = x._eq(&y)._where(1.0, 2.0);
     approx_eq!(out, [2., 1., 2., 1., 2.]);
 }
 
 #[test]
 fn test_softmax() {
-    let x = Tensor::<Cpu>::from_vec([1., 2., 3.], [3]);
+    let x = Tensor::<Cpu>::from_shape([1., 2., 3.], [3]);
     let (m, e, ss) = x._softmax(-1);
     approx_eq!(m, [-2., -1., 0.,]);
     approx_eq!(e, [0.13533531, 0.36787948, 1.,]);
@@ -1216,7 +1319,7 @@ fn test_softmax() {
 
 #[test]
 fn max_test() {
-    let x = Tensor::<Cpu>::from_vec(
+    let x = Tensor::<Cpu>::from_shape(
         (1..=3 * 3 * 3)
             .into_iter()
             .map(|e| e as f32)
@@ -1224,7 +1327,7 @@ fn max_test() {
         [3 * 3 * 3],
     )
     .reshape([3, 3, 3]);
-    let y = (x * -1.).max_all();
+    let y = (x * -1.0f32).max_all();
     approx_eq!(y, [-1.0]);
 }
 
@@ -1280,3 +1383,9 @@ fn max_test() {
 //     // let y = Tensor::<Cpu>::from_vec([0.], [1]);
 //     //println!("Expected: 0 | Got: {}", model.forward(&t).to_vec()[0]);
 // }
+
+#[test]
+fn test_randn() {
+    let t = Tensor::<Cpu>::randn([3,3]);
+    println!("{}", t);
+}
