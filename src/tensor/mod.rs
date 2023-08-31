@@ -465,8 +465,7 @@ impl<B: Backend> Tensor<B> {
             .map(|sh| *sh)
             .collect();
 
-        let mut xup = if k_.dims.iter().zip(s_.dims.iter()).any(|(k, s)| k > s) || d_.dims.iter().any(|d| *d != 1)
-        {
+        let mut xup = if k_.dims.iter().zip(s_.dims.iter()).any(|(k, s)| k > s) || d_.dims.iter().any(|d| *d != 1) {
             let o_: Vec<usize> = i_
                 .iter()
                 .zip(d_.dims.iter().zip(k_.dims.iter().zip(s_.dims.iter())))
@@ -478,13 +477,10 @@ impl<B: Backend> Tensor<B> {
                 .zip(i_.iter().zip(d_.dims.iter()))
                 .map(|(k, (i, d))| k * (i + d) / i)
                 .collect();
-            let mut tmp = prefix.clone();
-            tmp.extend(i_.iter().map(|i| vec![1, *i]).collect::<Vec<Vec<usize>>>().iter().flatten());
-            let mut tmp2 = prefix.clone();
-            tmp2.extend(e_.iter().zip(i_.iter()).map(|(e, i)| vec![*e, *i]).collect::<Vec<Vec<usize>>>().iter().flatten());
-            let mut tmp3 = prefix.clone();
-            tmp3.extend(e_.iter().zip(i_.iter()).map(|(e, i)| *e * *i));
-            let mut xup = self.reshape(tmp).expand(tmp2).reshape(tmp3);
+            let mut xup = self
+                .reshape([prefix.clone(), i_.iter().flat_map(|i| [1, *i]).collect()].concat())
+                .expand([prefix.clone(), e_.iter().zip(i_.iter()).flat_map(|(e, i)| [*e, *i]).collect()].concat())
+                .reshape([prefix.clone(), e_.iter().zip(i_.iter()).map(|(e, i)| *e * *i).collect()].concat());
 
             // Stride by dilation
             let mut tmp = slc_prefix.clone();
