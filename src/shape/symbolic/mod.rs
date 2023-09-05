@@ -589,19 +589,6 @@ impl Node for DivNode {
 }
 
 pub trait NodeOp {
-    fn variable(&self, s: Box<dyn Node>, ctx: Option<&str>) -> String;
-    fn num(&self, s: Box<dyn Node>, ctx: Option<&str>) -> String;
-    fn mul(&self, s: Box<dyn Node>, ctx: Option<&str>) -> String;
-    fn div(&self, s: Box<dyn Node>, ctx: Option<&str>) -> String;
-    fn _mod(&self, s: Box<dyn Node>, ctx: Option<&str>) -> String;
-    fn lt(&self, s: Box<dyn Node>, ctx: Option<&str>) -> String;
-    fn sum(&self, s: Box<dyn Node>, ctx: Option<&str>) -> String;
-    fn and(&self, s: Box<dyn Node>, ctx: Option<&str>) -> String;
-}
-
-pub struct CL;
-
-impl NodeOp for CL {
     fn variable(&self, s: Box<dyn Node>, ctx: Option<&str>) -> String {
         // Variable: lambda self,ops,ctx: f"{self.expr}[{self.min}-{self.max}]" if ctx == "DEBUG" else f"{self.expr}",
         if ctx.is_some_and(|f| f == "DEBUG") {
@@ -624,8 +611,9 @@ impl NodeOp for CL {
         // MulNode: lambda self,ops,ctx: f"({self.a.render(ops,ctx)}*{sym_render(self.b,ops,ctx)})",
         format!(
             "({}*{})",
-            s.a().unwrap().render(Box::new(Self), ctx, false),
-            s.b().unwrap().render(Box::new(Self), ctx, false), // <-- Everything should be a Node here
+            s.a().unwrap().render(Box::new(CL), ctx, false),
+            s.b().unwrap().render(Box::new(CL), ctx, false), // <-- Everything should be a Node here,
+                                                               // so no need to "sym_render()"
         )
     }
 
@@ -633,7 +621,7 @@ impl NodeOp for CL {
         // DivNode: lambda self,ops,ctx: f"({self.a.render(ops,ctx)}/{self.b})",
         format!(
             "({}/{})",
-            s.a().unwrap().render(Box::new(Self), ctx, false),
+            s.a().unwrap().render(Box::new(CL), ctx, false),
             s.b().unwrap()
         )
     }
@@ -642,7 +630,7 @@ impl NodeOp for CL {
         // ModNode: lambda self,ops,ctx: f"({self.a.render(ops,ctx)}%{self.b})",
         format!(
             "({}%{})",
-            s.a().unwrap().render(Box::new(Self), ctx, false),
+            s.a().unwrap().render(Box::new(CL), ctx, false),
             s.b().unwrap()
         )
     }
@@ -651,15 +639,15 @@ impl NodeOp for CL {
         //LtNode: lambda self,ops,ctx: f"({self.a.render(ops,ctx)}<{sym_render(self.b,ops,ctx)})",
         format!(
             "({}<{})",
-            s.a().unwrap().render(Box::new(Self), ctx, false),
-            s.b().unwrap().render(Box::new(Self), ctx, false),
+            s.a().unwrap().render(Box::new(CL), ctx, false),
+            s.b().unwrap().render(Box::new(CL), ctx, false),
         )
     }
 
     fn sum(&self, s: Box<dyn Node>, ctx: Option<&str>) -> String {
         let mut renders = vec![];
         for n in s.nodes() {
-            renders.push(n.render(Box::new(Self), ctx, false));
+            renders.push(n.render(Box::new(CL), ctx, false));
         }
         renders.sort();
         format!("({})", renders.join("+"))
@@ -668,16 +656,19 @@ impl NodeOp for CL {
     fn and(&self, s: Box<dyn Node>, ctx: Option<&str>) -> String {
         let mut renders = vec![];
         for n in s.nodes() {
-            renders.push(n.render(Box::new(Self), ctx, false));
+            renders.push(n.render(Box::new(CL), ctx, false));
         }
         renders.sort();
         format!("({})", renders.join("&&"))
     }
 }
 
+pub struct CL;
+impl NodeOp for CL{}
+
 #[test]
 fn sym_test() {
     let a = var("x", 0, 1800);
-    let b = a + 10 + 9 * 10;
+    let b = a + 10 + 9 * 10 / 10;
     println!("{b}");
 }
