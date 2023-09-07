@@ -31,6 +31,7 @@ pub mod prelude {
     pub use crate::util::safetensor::SafeTensor;
     pub(crate) use crate::tensor::mlops::*;
     pub(crate) use crate::approx_eq;
+    pub use crate::view;
 }
 
 use prelude::*;

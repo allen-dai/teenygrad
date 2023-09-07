@@ -1,10 +1,9 @@
 pub mod core_ops;
 
-use dyn_clone::DynClone;
 use std::hash::Hash;
 use std::{cmp::PartialEq, collections::HashMap, fmt::Display, rc::Rc, sync::Arc};
 
-#[derive(Debug, Clone, Eq)]
+#[derive(Clone, Eq, Debug)]
 pub struct ArcNode(Arc<dyn Node>);
 
 impl PartialEq for ArcNode {
@@ -28,6 +27,57 @@ impl core::ops::Deref for ArcNode {
     fn deref(&self) -> &Self::Target {
         &self.0
     }
+}
+
+fn lt(mut lhs: ArcNode, b: ArcNode) -> ArcNode {
+    create_node(LtNode::new(lhs, b))
+}
+
+fn div(lhs: ArcNode, rhs: ArcNode, factoring_allowed: Option<bool>) -> ArcNode {
+    if lhs.key() == rhs.key() {
+        return num(1);
+    }
+    if (&rhs - &lhs).min().unwrap() > 0 && lhs.min().unwrap() >= 0 {
+        return num(0);
+    }
+    let b = rhs.num_val().unwrap();
+    assert!(b != 0);
+    if b < 0 {
+        return div(lhs, num(-b), None) * -1;
+    }
+    if b == 1 {
+        return lhs;
+    }
+    let min = lhs.min().unwrap();
+    if min < 0 {
+        let offset = min.div_euclid(b);
+        // println!("{min}/{b}={offset}");
+        return div((&lhs + -offset * b), rhs, Some(false)) + offset;
+    }
+    create_node(DivNode::new(lhs, rhs))
+}
+
+fn _mod(lhs: ArcNode, rhs: ArcNode) -> ArcNode {
+    if lhs.key() == rhs.key() {
+        return num(0);
+    }
+    if (&rhs - &lhs).min().unwrap() > 0 && lhs.min().unwrap() >= 0 {
+        return lhs.to_arc();
+    }
+
+    let b = rhs.num_val().unwrap();
+    let min = lhs.min().unwrap();
+    let max = lhs.max().unwrap();
+    if b == 1 {
+        return num(0);
+    }
+    if min >= 0 && max < b {
+        return lhs.to_arc();
+    }
+    if min < 0 {
+        return &lhs - (min.div_euclid(b) * b).rem_euclid(b);
+    }
+    create_node(ModNode::new(lhs.to_arc(), rhs))
 }
 
 pub trait Node: core::fmt::Debug {
@@ -89,49 +139,11 @@ pub trait Node: core::fmt::Debug {
     }
 
     fn _div(&self, rhs: ArcNode, factoring_allowed: Option<bool>) -> ArcNode {
-        if self.key() == rhs.key() {
-            return num(1);
-        }
-        if (rhs._sub(self.to_arc())).min().unwrap() > 0 && self.min().unwrap() >= 0 {
-            return num(0);
-        }
-        let b = rhs.num_val().unwrap();
-        assert!(b != 0);
-        if b < 0 {
-            return self._div(num(-b), None) * -1;
-        }
-        if b == 1 {
-            return self.to_arc();
-        }
-        let min = self.min().unwrap();
-        if min < 0 {
-            let offset = min / b;
-            return (self._add(num(-offset)._mul(num(b)))._div(rhs, Some(false)))._add(num(offset));
-        }
-        create_node(DivNode::new((*self).to_arc(), rhs))
+        div(self.to_arc(), rhs, factoring_allowed)
     }
 
     fn _mod(&self, rhs: ArcNode) -> ArcNode {
-        if self.key() == rhs.key() {
-            return num(0);
-        }
-        if (&rhs - &self.to_arc()).min().unwrap() > 0 && self.min().unwrap() >= 0 {
-            return self.to_arc();
-        }
-
-        let b = rhs.num_val().unwrap();
-        let min = self.min().unwrap();
-        let max = self.max().unwrap();
-        if b == 1 {
-            return num(0);
-        }
-        if min >= 0 && max < b {
-            return self.to_arc();
-        }
-        if min < 0 {
-            return self.to_arc() - &((&num(self.min().unwrap()) / &rhs) * rhs.clone()) % &rhs;
-        }
-        create_node(ModNode::new(self.to_arc(), rhs))
+        _mod(self.to_arc(), rhs)
     }
 
     fn neg(&self) -> ArcNode {
@@ -139,34 +151,7 @@ pub trait Node: core::fmt::Debug {
     }
 
     fn lt(&self, b: ArcNode) -> ArcNode {
-        let mut lhs = self.to_arc();
-        if !lhs.is_sum() || !b.is_num() {
-            return create_node(LtNode::new(lhs, b));
-        }
-        let mut muls = vec![];
-        let mut others = vec![];
-        for x in lhs.nodes() {
-            if x.is_mul() && x.b().unwrap().num_val().unwrap() > 0 && x.max().unwrap() >= 0 {
-                muls.push(x.clone());
-            } else {
-                others.push(x.clone());
-            }
-        }
-        if muls.is_empty() {
-            return create_node(LtNode::new(lhs, b.clone()));
-        }
-
-        let mut mul_gcd = muls[0].b().unwrap().num_val().unwrap();
-        for x in muls[1..].iter() {
-            mul_gcd = gcd(mul_gcd, x.b().unwrap().num_val().unwrap());
-        }
-        if b.num_val().unwrap() % mul_gcd == 0 {
-            let all_others = sum(&others);
-            if all_others.min().unwrap() >= 0 && all_others.max().unwrap() < mul_gcd {
-                lhs = sum(&muls);
-            }
-        }
-        create_node(LtNode::new(lhs, b))
+        lt(self.to_arc(), b)
     }
 
     fn le(&self, b: ArcNode) -> ArcNode {
@@ -223,20 +208,7 @@ pub trait Node: core::fmt::Debug {
     fn render(&self, ops: Arc<dyn NodeOp>, ctx: Option<&str>, strip_paren: bool) -> String;
 
     fn vars(&self) -> Vec<ArcNode> {
-        vec![
-            if let Some(a) = self.a() {
-                a.vars()
-            } else {
-                vec![]
-            },
-            if let Some(b) = self.b() {
-                b.vars()
-            } else {
-                vec![]
-            },
-            self.nodes(),
-        ]
-        .concat()
+        vec![]
     }
 
     fn nodes(&self) -> Vec<ArcNode> {
@@ -279,7 +251,7 @@ pub fn gcd(mut n: isize, mut m: isize) -> isize {
 }
 
 pub fn var(expr: &str, min: isize, max: isize) -> ArcNode {
-    Variable::new(expr, min, max)
+    create_node(Variable::new(expr, min, max))
 }
 
 pub fn num(v: isize) -> ArcNode {
@@ -311,18 +283,23 @@ pub fn sum(_nodes: &[ArcNode]) -> ArcNode {
         new_nodes.push(n)
     }
     let mut unique_mul_a: Vec<ArcNode> = new_nodes
-        .clone()
-        .into_iter()
-        .filter(|n| n.is_mul())
-        .map(|n| n.a().unwrap().to_arc())
+        .iter()
+        .map(|x| {
+            if x.is_mul() {
+                x.a().unwrap()
+            } else {
+                x.clone()
+            }
+        })
         .collect();
     unique_mul_a.dedup_by(|a, b| a.key() == b.key());
     if new_nodes.len() > 1 && unique_mul_a.len() < new_nodes.len() {
         new_nodes = factorize(new_nodes);
     }
-    if num_node_sum > 0 {
+    if num_node_sum != 0 {
         new_nodes.push(num(num_node_sum));
     }
+
     // return create_rednode(SumNode, new_nodes) if len(new_nodes) > 1 else new_nodes[0] if len(new_nodes) == 1 else NumNode(0)
     if new_nodes.len() == 0 {
         return num(0);
@@ -333,9 +310,36 @@ pub fn sum(_nodes: &[ArcNode]) -> ArcNode {
     ArcNode(Arc::new(SumNode { nodes: new_nodes }))
 }
 
-// pub fn ands(nodes: &[ArcNode]) -> ArcNode {
-//     AndNode::new(nodes)
-// }
+pub fn ands(nodes: &[ArcNode]) -> ArcNode {
+    if nodes.is_empty() {
+        return num(1);
+    }
+    if nodes.len() == 1 {
+        return nodes[0].clone();
+    }
+    // def __bool__(self): return not (self.max == self.min == 0)
+    // if any(not x for x in nodes): return NumNode(0)
+    if nodes.iter().any(|x| {
+        x.min().is_some()
+            && x.max().is_some()
+            && x.max().unwrap() == x.min().unwrap()
+            && x.max().unwrap() == 0
+    }) {
+        return num(0);
+    }
+    let nodes: Vec<ArcNode> = nodes
+        .iter()
+        .filter(|n| n.min().unwrap() != n.max().unwrap())
+        .map(|n| n.clone())
+        .collect();
+    if nodes.len() > 1 {
+        return AndNode::new(&nodes);
+    }
+    if nodes.len() == 1 {
+        return nodes[0].to_owned();
+    }
+    num(1)
+}
 
 pub fn factorize(nodes: Vec<ArcNode>) -> Vec<ArcNode> {
     let mut mul_groups: HashMap<ArcNode, isize> = HashMap::new();
@@ -345,10 +349,7 @@ pub fn factorize(nodes: Vec<ArcNode>) -> Vec<ArcNode> {
         } else {
             (x, num(1))
         };
-        *mul_groups
-            .entry(a)
-            .or_insert(b.num_val().expect("this should have a int but not sure")) +=
-            b.num_val().unwrap();
+        *mul_groups.entry(a).or_default() += b.num_val().unwrap();
     }
     let mut ret = vec![];
     for (a, b_sum) in mul_groups.keys().zip(mul_groups.values()) {
@@ -414,14 +415,16 @@ impl Node for Variable {
         }
         ret
     }
+
+    fn vars(&self) -> Vec<ArcNode> {
+        vec![self.to_arc()]
+    }
 }
 
 #[derive(Debug)]
 pub struct SumNode {
     nodes: Vec<ArcNode>,
 }
-
-impl SumNode {}
 
 impl Node for SumNode {
     // Not sure about this, in sum() there is a check for min or max. but why. what node doesnt
@@ -453,6 +456,14 @@ impl Node for SumNode {
         self.nodes.clone()
     }
 
+    fn vars(&self) -> Vec<ArcNode> {
+        let mut ret = vec![];
+        for n in self.nodes.iter() {
+            ret.extend(n.vars());
+        }
+        ret
+    }
+
     fn render(&self, ops: Arc<dyn NodeOp>, ctx: Option<&str>, strip_paren: bool) -> String {
         assert!(
             self.min().unwrap() != self.max().unwrap(),
@@ -477,7 +488,7 @@ impl Node for SumNode {
 
     fn lt(&self, mut b: ArcNode) -> ArcNode {
         if !b.is_num() {
-            return Node::lt(self, b);
+            return lt(self.to_arc(), b);
         }
         let mut new_sum = vec![];
         for x in self.nodes.iter() {
@@ -487,14 +498,144 @@ impl Node for SumNode {
                 new_sum.push(x.clone());
             }
         }
-        sum(&new_sum).lt(b)
+        let mut lhs = sum(&new_sum);
+        if !lhs.is_sum() {
+            return lt(lhs, b);
+        }
+        let mut muls = vec![];
+        let mut others = vec![];
+        for x in lhs.nodes() {
+            if x.is_mul() && x.b().unwrap().num_val().unwrap() > 0 && x.max().unwrap() >= 0 {
+                muls.push(x.clone());
+            } else {
+                others.push(x.clone());
+            }
+        }
+        if muls.is_empty() {
+            return create_node(LtNode::new(lhs, b.clone()));
+        }
+
+        let mut mul_gcd = muls[0].b().unwrap().num_val().unwrap();
+        for x in muls[1..].iter() {
+            mul_gcd = gcd(mul_gcd, x.b().unwrap().num_val().unwrap());
+        }
+        if b.num_val().unwrap() % mul_gcd == 0 {
+            let all_others = sum(&others);
+            if all_others.min().unwrap() >= 0 && all_others.max().unwrap() < mul_gcd {
+                lhs = sum(&muls);
+            }
+        }
+        lt(lhs, b)
     }
 
     fn _mod(&self, rhs: ArcNode) -> ArcNode {
-        // if rhs.is_sum() {
-        //     nu_num = sum(self.flat_components().iter().map(|n|)
-        // }
-        todo!()
+        if rhs.is_sum() {
+            let nu_num = sum(&self
+                .flat_components()
+                .into_iter()
+                .filter(|n| n.is_num())
+                .collect::<Vec<ArcNode>>());
+            let de_num = sum(&rhs
+                .flat_components()
+                .into_iter()
+                .filter(|n| n.is_num())
+                .collect::<Vec<ArcNode>>());
+            // we filter only num and sum of these nodes is a num node
+            if nu_num.num_val().unwrap() > 0
+                && de_num.is_num()
+                && nu_num.num_val().unwrap() / de_num.num_val().unwrap() > 0
+            {
+                return (self.to_arc()
+                    - rhs.clone() * (nu_num.num_val().unwrap() / de_num.num_val().unwrap()))
+                    % rhs;
+            }
+        }
+        if (&rhs - self.to_arc()).min().unwrap() > 0 {
+            return self.to_arc();
+        }
+        let mut new_nodes = vec![];
+        for x in self.nodes.iter() {
+            if x.is_num() {
+                new_nodes.push(num(x.num_val().unwrap().rem_euclid(rhs.num_val().unwrap())));
+            } else if x.is_mul() {
+                new_nodes.push(x.a().unwrap() * (x.b().unwrap() % rhs.clone()));
+            } else {
+                new_nodes.push(x.clone())
+            }
+        }
+        _mod(sum(&new_nodes), rhs)
+    }
+
+    fn _div(&self, rhs: ArcNode, factoring_allowed: Option<bool>) -> ArcNode {
+        if rhs.is_sum() {
+            let nu_num = sum(&self
+                .flat_components()
+                .into_iter()
+                .filter(|n| n.is_num())
+                .collect::<Vec<ArcNode>>());
+            let de_num = sum(&rhs
+                .flat_components()
+                .into_iter()
+                .filter(|n| n.is_num())
+                .collect::<Vec<ArcNode>>());
+            if nu_num.num_val().unwrap() > 0
+                && de_num.is_num()
+                && nu_num.num_val().unwrap() / de_num.num_val().unwrap() > 0
+            {
+                let d = nu_num.num_val().unwrap() / de_num.num_val().unwrap();
+                return num(d) + (self.to_arc() - &rhs * d) / rhs;
+            }
+        }
+        let mut fully_divided = vec![];
+        let mut rest = vec![];
+        if !rhs.is_num() {
+            for x in self.flat_components() {
+                if &x % &rhs == num(0) {
+                    fully_divided.push(&x / &rhs);
+                } else {
+                    rest.push(x.clone());
+                }
+            }
+            let sum_fully_divied = sum(&fully_divided);
+            if sum_fully_divied != num(0) {
+                return sum_fully_divied + sum(&rest) / rhs;
+            }
+            return div(self.to_arc(), rhs, Some(false));
+        }
+        if rhs.num_val().unwrap() == 1 {
+            return self.to_arc();
+        }
+        if factoring_allowed.is_some_and(|x| x == false) {
+            return div(self.to_arc(), rhs, Some(false));
+        }
+        let mut b = rhs.num_val().unwrap();
+        let mut fully_divided = vec![];
+        let mut rest = vec![];
+        let mut _gcd = rhs.num_val().unwrap();
+        let mut divisor = 1;
+        for x in self.flat_components() {
+            if x.is_num() || x.is_mul() {
+                if x.b().unwrap().num_val().unwrap().rem_euclid(b) == 0 {
+                    fully_divided.push(x / b)
+                } else {
+                    rest.push(x.clone());
+                    _gcd = gcd(_gcd, x.b().unwrap().num_val().unwrap());
+                    if x.is_mul() && divisor == 1 && &rhs % &x.b().unwrap() == num(0) {
+                        divisor = x.b().unwrap().num_val().unwrap();
+                    }
+                }
+            } else {
+                rest.push(x.clone());
+                _gcd = 1;
+            }
+        }
+        if _gcd > 1 {
+            return sum(&fully_divided) + sum(&rest) / _gcd / (rhs / _gcd);
+        }
+        if divisor > 1 {
+            return sum(&fully_divided) + sum(&rest) / divisor / (rhs / divisor);
+        }
+        sum(&fully_divided) + div(sum(&rest), rhs, None)
     }
 }
 
@@ -522,8 +663,15 @@ impl MulNode {
 }
 
 impl Node for MulNode {
+    fn vars(&self) -> Vec<ArcNode> {
+        vec![self.a.vars(), self.b.vars()].concat()
+    }
     fn get_bounds(&self) -> Option<(isize, isize)> {
-        let b = self.b.num_val().unwrap();
+        let b = if self.b.is_num() {
+            self.b.num_val().unwrap()
+        } else {
+            self.b.max().unwrap() // FIXME: when self.b is not a int, min max becomes 'Node' instead of int in tinygrad
+        };
         if b >= 0 {
             return Some((self.a.min().unwrap() * b, self.a.max().unwrap() * b));
         }
@@ -534,9 +682,18 @@ impl Node for MulNode {
         self.a._mul((self.b._mul(rhs)))
     }
 
-    // fn div(&self, rhs: ArcNode) -> ArcNode {
-    //
-    // }
+    fn _div(&self, rhs: ArcNode, factoring_allowed: Option<bool>) -> ArcNode {
+        assert!(self.b.is_num() && rhs.is_num(), "Tinygrad requires both self.b and rhs to be num implicitly, will crash in Node.__mod__ otherwise");
+        let b = self.b.num_val().unwrap();
+        let r = rhs.num_val().unwrap();
+        if &b % &r == 0 {
+            return &self.a * (b / r);
+        }
+        if &r % &b == 0 && b > 1 {
+            return &self.a / (r / b);
+        }
+        div(self.to_arc(), rhs, factoring_allowed)
+    }
 
     fn is_mul(&self) -> bool {
         true
@@ -580,8 +737,12 @@ impl Node for MulNode {
     }
 
     fn _mod(&self, rhs: ArcNode) -> ArcNode {
-        let a  = (&self.a * &(&self.b % &rhs));
-        a._mod(rhs)
+        let a = (&self.a * &(&self.b % &rhs));
+        _mod(a, rhs)
+    }
+
+    fn nodes(&self) -> Vec<ArcNode> {
+        vec![self.a.clone(), self.b.clone()]
     }
 }
 
@@ -657,16 +818,21 @@ impl Node for DivNode {
     }
 
     fn get_bounds(&self) -> Option<(isize, isize)> {
-        Some((
-            self.a.min().unwrap() / self.b.num_val().unwrap(),
-            self.a.max().unwrap() / self.b.num_val().unwrap(),
-        ))
+        let b = if self.b.is_num() {
+            self.b.num_val().unwrap()
+        } else {
+            self.b.max().unwrap() // FIXME: when self.b is not a int, min max becomes 'Node' instead of int in tinygrad
+        };
+        Some((self.a.min().unwrap() / b, self.a.max().unwrap() / b))
     }
 
     fn is_div(&self) -> bool {
         true
     }
 
+    fn vars(&self) -> Vec<ArcNode> {
+        vec![self.a.vars(), self.b.vars()].concat()
+    }
     fn to_arc(&self) -> ArcNode {
         ArcNode(Arc::new(Self {
             a: self.a.to_arc(),
@@ -794,6 +960,10 @@ impl Node for LtNode {
             Some((0, 1))
         }
     }
+
+    fn vars(&self) -> Vec<ArcNode> {
+        vec![self.a.vars(), self.b.vars()].concat()
+    }
 }
 
 #[derive(Debug)]
@@ -818,6 +988,10 @@ impl ModNode {
 }
 
 impl Node for ModNode {
+    fn vars(&self) -> Vec<ArcNode> {
+        vec![self.a.vars(), self.b.vars()].concat()
+    }
+
     fn a(&self) -> Option<ArcNode> {
         Some(self.a.clone())
     }
@@ -834,10 +1008,18 @@ impl Node for ModNode {
         Some(self.max)
     }
 
+    fn nodes(&self) -> Vec<ArcNode> {
+        vec![self.a.clone(), self.b.clone()]
+    }
+
     fn get_bounds(&self) -> Option<(isize, isize)> {
         assert!(self.a.min().unwrap() >= 0 && self.b.is_num());
         let (a_min, a_max) = (self.a.min().unwrap(), self.a.max().unwrap());
-        let b = self.b.num_val().unwrap();
+        let b = if self.b.is_num() {
+            self.b.num_val().unwrap()
+        } else {
+            self.b.max().unwrap() // FIXME: when self.b is not a int, min max becomes 'Node' instead of int in tinygrad
+        };
         // if self.a.max - self.a.min >= self.b or (self.a.min != self.a.max and self.a.min%self.b >= self.a.max%self.b):
         //    return (0, self.b-1)
         // else
@@ -875,6 +1057,80 @@ impl Node for ModNode {
     fn is_mod(&self) -> bool {
         true
     }
+
+    fn _div(&self, rhs: ArcNode, factoring_allowed: Option<bool>) -> ArcNode {
+        if &self.b % &rhs == num(0) {
+            return (&self.a / &rhs) % (&self.b / &rhs);
+        }
+        div(self.to_arc(), rhs, factoring_allowed)
+    }
+}
+
+#[derive(Debug)]
+pub struct AndNode {
+    nodes: Vec<ArcNode>,
+}
+
+impl AndNode {
+    fn new(b: &[ArcNode]) -> ArcNode {
+        ArcNode(Arc::new(Self { nodes: b.to_vec() }))
+    }
+}
+
+impl Node for AndNode {
+    fn min(&self) -> Option<isize> {
+        self.nodes.iter().map(|n| n.min().unwrap()).min()
+    }
+
+    fn vars(&self) -> Vec<ArcNode> {
+        let mut ret = vec![];
+        for n in self.nodes.iter() {
+            ret.extend(n.vars());
+        }
+        ret
+    }
+
+    fn max(&self) -> Option<isize> {
+        self.nodes.iter().map(|n| n.max().unwrap()).max()
+    }
+
+    fn _mul(&self, rhs: ArcNode) -> ArcNode {
+        ands(
+            &self
+                .nodes
+                .iter()
+                .map(|n| n * &rhs)
+                .collect::<Vec<ArcNode>>(),
+        )
+    }
+
+    fn _div(&self, rhs: ArcNode, factoring_allowed: Option<bool>) -> ArcNode {
+        ands(
+            &self
+                .nodes
+                .iter()
+                .map(|n| n / &rhs)
+                .collect::<Vec<ArcNode>>(),
+        )
+    }
+
+    fn render(&self, ops: Arc<dyn NodeOp>, ctx: Option<&str>, strip_paren: bool) -> String {
+        let mut ret = ops.and(self.to_arc(), ctx);
+        if strip_paren && ret.chars().nth(0).unwrap() == '(' {
+            ret.replace("(", "").replace(")", "");
+        }
+        ret
+    }
+
+    fn to_arc(&self) -> ArcNode {
+        ArcNode(Arc::new(Self {
+            nodes: self.nodes.clone(),
+        }))
+    }
+
+    fn nodes(&self) -> Vec<ArcNode> {
+        self.nodes.clone()
+    }
 }
 
 pub trait NodeOp {
@@ -900,9 +1156,9 @@ pub trait NodeOp {
         // MulNode: lambda self,ops,ctx: f"({self.a.render(ops,ctx)}*{sym_render(self.b,ops,ctx)})",
         format!(
             "({}*{})",
-            s.a().unwrap().render(Arc::new(CStyle), ctx, false),
-            s.b().unwrap().render(Arc::new(CStyle), ctx, false), // <-- Everything should be a Node here,
-                                                                 // so no need to "sym_render()"
+            s.a().unwrap().render(self.to_arc(), ctx, false),
+            s.b().unwrap().render(self.to_arc(), ctx, false), // <-- Everything should be a Node here,
+                                                              // so no need to "sym_render()"
         )
     }
 
@@ -910,7 +1166,7 @@ pub trait NodeOp {
         // DivNode: lambda self,ops,ctx: f"({self.a.render(ops,ctx)}/{self.b})",
         format!(
             "({}/{})",
-            s.a().unwrap().render(Arc::new(CStyle), ctx, false),
+            s.a().unwrap().render(self.to_arc(), ctx, false),
             s.b().unwrap()
         )
     }
@@ -919,7 +1175,7 @@ pub trait NodeOp {
         // ModNode: lambda self,ops,ctx: f"({self.a.render(ops,ctx)}%{self.b})",
         format!(
             "({}%{})",
-            s.a().unwrap().render(Arc::new(CStyle), ctx, false),
+            s.a().unwrap().render(self.to_arc(), ctx, false),
             s.b().unwrap()
         )
     }
@@ -928,15 +1184,15 @@ pub trait NodeOp {
         //LtNode: lambda self,ops,ctx: f"({self.a.render(ops,ctx)}<{sym_render(self.b,ops,ctx)})",
         format!(
             "({}<{})",
-            s.a().unwrap().render(Arc::new(CStyle), ctx, false),
-            s.b().unwrap().render(Arc::new(CStyle), ctx, false),
+            s.a().unwrap().render(self.to_arc(), ctx, false),
+            s.b().unwrap().render(self.to_arc(), ctx, false),
         )
     }
 
     fn sum(&self, s: ArcNode, ctx: Option<&str>) -> String {
         let mut renders = vec![];
         for n in s.nodes() {
-            renders.push(n.render(Arc::new(CStyle), ctx, false));
+            renders.push(n.render(self.to_arc(), ctx, false));
         }
         renders.sort();
         format!("({})", renders.join("+"))
@@ -945,11 +1201,13 @@ pub trait NodeOp {
     fn and(&self, s: ArcNode, ctx: Option<&str>) -> String {
         let mut renders = vec![];
         for n in s.nodes() {
-            renders.push(n.render(Arc::new(CStyle), ctx, false));
+            renders.push(n.render(self.to_arc(), ctx, false));
         }
         renders.sort();
         format!("({})", renders.join("&&"))
     }
+
+    fn to_arc(&self) -> Arc<dyn NodeOp>;
 }
 
 pub struct CStyle;
@@ -958,7 +1216,11 @@ impl CStyle {
         Arc::new(Self)
     }
 }
-impl NodeOp for CStyle {}
+impl NodeOp for CStyle {
+    fn to_arc(&self) -> Arc<dyn NodeOp> {
+        Arc::new(CStyle)
+    }
+}
 
 pub struct Python;
 impl Python {
@@ -982,19 +1244,8 @@ impl NodeOp for Python {
         renders.sort();
         format!("({})", renders.join(" and "))
     }
-}
 
-#[test]
-fn sym_test() {
-    let a = var("x", 0, 1800);
-    let b = a * 10 % 10;
-    println!("{}", b);
-}
-
-#[test]
-fn nodeop_test() {
-    let a = var("x", 0, 1800);
-    let b = a / 10;
-    println!("{}", b); // Default to CL.
-    println!("{}", b.render(Python::new(), None, false)); // Now uses Python
+    fn to_arc(&self) -> Arc<dyn NodeOp> {
+        Arc::new(Python)
+    }
 }
