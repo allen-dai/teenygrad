@@ -70,7 +70,6 @@ impl ShapeTracker {
             .map(|(i, sh)| var(&format!("idx{}", i), 0, sh - 1))
             .collect();
         let (idx, valid) = self.expr_idxs(Some(idxs.clone()));
-        println!("idx {} valid {}", idx, valid);
         for this_dim in (if idx.is_sum() {
             idx.nodes()
         } else {
@@ -107,7 +106,6 @@ impl ShapeTracker {
             }
             valid = v.expr_node_mask(idx.clone(), Some(valid));
             idx = v.expr_node(Some(idx));
-            println!("-- valid {valid}");
         }
         return (idx, valid);
     }
@@ -140,7 +138,6 @@ impl ShapeTracker {
             idxs_to_idx(&self.views[self.views.len() - 1].shape, &idxs),
             None,
         );
-        println!("- idx {} valid {}", idx, valid);
         self._expr_idx(idx, valid)
     }
 

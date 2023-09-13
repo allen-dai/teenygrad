@@ -57,6 +57,5 @@ pub fn test_realstrides() {
         ]),
     );
     let rs = st.real_strides(false);
-    println!("{:?}", rs);
     assert!(rs == vec![None, Some(4), Some(1)]);
 }

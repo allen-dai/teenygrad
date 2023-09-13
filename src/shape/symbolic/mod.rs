@@ -505,7 +505,7 @@ impl Node for SumNode {
         let mut muls = vec![];
         let mut others = vec![];
         for x in lhs.nodes() {
-            if x.is_mul() && x.b().unwrap().num_val().unwrap() > 0 && x.max().unwrap() >= 0 {
+            if x.is_mul() && x.b().unwrap().num_val().unwrap() > 0 && x.max().unwrap() >= b.num_val().unwrap() {
                 muls.push(x.clone());
             } else {
                 others.push(x.clone());
@@ -519,7 +519,7 @@ impl Node for SumNode {
         for x in muls[1..].iter() {
             mul_gcd = gcd(mul_gcd, x.b().unwrap().num_val().unwrap());
         }
-        if b.num_val().unwrap() % mul_gcd == 0 {
+        if b.num_val().unwrap().rem_euclid(mul_gcd) == 0 {
             let all_others = sum(&others);
             if all_others.min().unwrap() >= 0 && all_others.max().unwrap() < mul_gcd {
                 lhs = sum(&muls);

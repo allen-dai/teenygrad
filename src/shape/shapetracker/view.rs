@@ -57,24 +57,16 @@ impl View {
     }
 
     pub fn expr_node_mask(&self, idx: ArcNode, valid: Option<ArcNode>) -> ArcNode {
-        println!("\nidx input in expr_node_mask {idx}");
         let mut expr = if let Some(n) = valid { vec![n] } else { vec![] };
         if let Some(mask) = &self.mask {
             let mut acc = 1;
             for (&ns, &(x, y)) in self.shape.iter().zip(mask).rev() {
                 if x != 0 || y != ns {
                     let base = ((&idx / acc) % ns);
-                    println!("base = {base} = (({idx} / {acc}) % {ns})");
-                    let l = base.ge(num(x));
-                    let r = base.lt(num(y));
-                    println!("base >= x = {l}, base < y = {r}");
                     expr.extend([base.ge(num(x)), base.lt(num(y))]);
                 }
                 acc *= ns;
             }
-        }
-        for i in expr.iter() {
-            println!("{i}");
         }
         ands(&expr)
     }
