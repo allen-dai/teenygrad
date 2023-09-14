@@ -52,7 +52,7 @@ impl ShapeTracker {
     }
 
     pub fn real_offset(&self) -> isize {
-        let (real_offset, mask) = self.expr_node(var("zero", 0, 0));
+        let (real_offset, mask) = self.expr_node(Some(var("zero", 0, 0)));
         assert!(real_offset.is_num());
         real_offset.num_val().unwrap()
     }
@@ -141,7 +141,12 @@ impl ShapeTracker {
         self._expr_idx(idx, valid)
     }
 
-    pub fn expr_node(&self, idx: ArcNode) -> (ArcNode, ArcNode) {
+    pub fn expr_node(&self, idx: Option<ArcNode>) -> (ArcNode, ArcNode) {
+        let idx = if let Some(i) = idx {
+            i
+        } else {
+            var("idx", 0, self.views.last().unwrap().shape.iter().product::<isize>() - 1)
+        };
         self._expr_idx(
             self.views[self.views.len() - 1].expr_node(Some(idx.clone())),
             self.views[self.views.len() - 1].expr_node_mask(idx, None),

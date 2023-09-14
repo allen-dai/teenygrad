@@ -19,12 +19,12 @@ macro_rules! view {
 
 #[derive(Debug, Clone)]
 pub struct View {
-    pub(crate) shape: Vec<isize>,
-    pub(crate) strides: Vec<isize>,
-    pub(crate) offset: isize,
-    pub(crate) mask: Option<Vec<(isize, isize)>>,
-    pub(crate) shape_strides: Vec<(isize, isize)>,
-    pub(crate) contiguous: bool,
+    pub shape: Vec<isize>,
+    pub strides: Vec<isize>,
+    pub offset: isize,
+    pub mask: Option<Vec<(isize, isize)>>,
+    pub shape_strides: Vec<(isize, isize)>,
+    pub contiguous: bool,
 }
 
 impl View {
@@ -78,9 +78,9 @@ impl View {
             var("idx", 0, self.shape.iter().product::<isize>()-1)
         };
         let mut ret = vec![];
-        // if self.offset != 0 {
-        //     ret.push(num(self.offset));
-        // }
+        if self.offset != 0 {
+            ret.push(num(self.offset));
+        }
         let mut acc = 1;
         for &(d, s) in to_shape_strides(&self.shape, &self.strides).iter().rev() {
             ret.push(((&idx / acc) % d) * s);

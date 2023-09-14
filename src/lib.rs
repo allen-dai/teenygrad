@@ -18,6 +18,11 @@ pub mod tensor;
 pub mod util;
 pub mod lazy;
 pub mod shape;
+pub mod renderer;
+pub mod dtype;
+pub mod codegen;
+pub mod ops;
+pub mod runtime;
 
 pub mod prelude {
     pub use crate::backend::cpu::Cpu;

@@ -366,7 +366,7 @@ pub fn factorize(nodes: Vec<ArcNode>) -> Vec<ArcNode> {
     ret
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Variable {
     expr: String,
     min: isize,
