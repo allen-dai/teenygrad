@@ -10,6 +10,8 @@ lazy_static::lazy_static! {
             .unwrap().as_nanos();
             Arc::new(Mutex::new(StdRng::seed_from_u64(time as u64)))
     };
+
+    pub static ref DEVICE: &'static str = "GPU";
 }
 
 pub mod backend;
@@ -23,6 +25,8 @@ pub mod dtype;
 pub mod codegen;
 pub mod ops;
 pub mod runtime;
+pub mod realize;
+pub mod device;
 
 pub mod prelude {
     pub use crate::backend::cpu::Cpu;
@@ -37,6 +41,7 @@ pub mod prelude {
     pub(crate) use crate::tensor::mlops::*;
     pub(crate) use crate::approx_eq;
     pub use crate::view;
+    pub use crate::DEVICE;
 }
 
 use prelude::*;

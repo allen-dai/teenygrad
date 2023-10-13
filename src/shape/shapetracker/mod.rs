@@ -1,14 +1,14 @@
 pub mod util;
 pub mod view;
 
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::{sync::{Arc, Mutex, MutexGuard}, collections::HashMap};
 
 pub use util::*;
 use view::View;
 
 use crate::shape::symbolic::{num, var};
 
-use super::symbolic::ArcNode;
+use super::symbolic::{ArcNode, Variable};
 
 #[derive(Clone, Debug)]
 pub struct ShapeTracker {
@@ -145,7 +145,11 @@ impl ShapeTracker {
         let idx = if let Some(i) = idx {
             i
         } else {
-            var("idx", 0, self.views.last().unwrap().shape.iter().product::<isize>() - 1)
+            var(
+                "idx",
+                0,
+                self.views.last().unwrap().shape.iter().product::<isize>() - 1,
+            )
         };
         self._expr_idx(
             self.views[self.views.len() - 1].expr_node(Some(idx.clone())),
@@ -169,50 +173,57 @@ impl ShapeTracker {
             .any(|n| n.expr().is_some() && n.expr().unwrap() == &format!("idx{axis}"))
     }
 
-    pub fn pad(&mut self, arg: &[(isize, isize)]) -> &mut Self {
-        let last = self.views.last_mut().unwrap();
-        *last = last.pad(arg);
-        self
+    pub fn pad(&self, arg: &[(isize, isize)]) -> Self {
+        let mut views = self.views.clone();
+        let p = views.pop().unwrap();
+        views.push(p.pad(arg));
+        ShapeTracker { views }
     }
 
-    pub fn shrink(&mut self, arg: &[(isize, isize)]) -> &mut Self {
-        let last = self.views.last_mut().unwrap();
-        *last = last.shrink(arg);
-        self
+    pub fn shrink(&self, arg: &[(isize, isize)]) -> Self {
+        let mut views = self.views.clone();
+        let p = views.pop().unwrap();
+        views.push(p.shrink(arg));
+        ShapeTracker { views }
     }
 
-    pub fn expand(&mut self, new_shape: &[isize]) -> &mut Self {
-        let last = self.views.last_mut().unwrap();
-        *last = last.expand(new_shape);
-        self
+    pub fn expand(&self, new_shape: &[isize]) -> Self {
+        let mut views = self.views.clone();
+        let p = views.pop().unwrap();
+        views.push(p.expand(new_shape));
+        ShapeTracker { views }
     }
 
-    pub fn reshape(&mut self, new_shape: &[isize]) -> &mut Self {
+    pub fn reshape(&self, new_shape: &[isize]) -> Self {
         let new_view = self.views[self.views.len() - 1].reshape(new_shape);
-        if let Some(view) = new_view {
-            *self.views.last_mut().unwrap() = view;
-        } else {
+        let mut views = self.views.clone();
+        if new_view.is_none() {
             let extra = View::new(new_shape, None, None, None);
-            //NOTE: Some werid cases when reshape [3,3,3,3] to [9,9], stride become [0,0] or [x,1]
             if let Some(merged_view) = merge_view(self.views.last().unwrap(), &extra) {
-                *self.views.last_mut().unwrap() = merged_view;
+                views.pop();
+                views.push(merged_view);
             } else {
-                self.views.push(extra);
+                views.push(extra);
             }
+        } else {
+            views.pop();
+            views.push(new_view.unwrap());
         }
-        self
+        ShapeTracker { views }
     }
 
-    pub fn permute(&mut self, axis: &[isize]) -> &mut Self {
-        let last = self.views.last_mut().unwrap();
-        *last = last.permute(axis);
-        self
+    pub fn permute(&self, axis: &[isize]) -> Self {
+        let mut views = self.views.clone();
+        let p = views.pop().unwrap();
+        views.push(p.permute(axis));
+        ShapeTracker { views }
     }
 
-    pub fn stride(&mut self, mul: &[isize]) -> &mut Self {
-        let last = self.views.last_mut().unwrap();
-        *last = last.stride(mul);
-        self
+    pub fn stride(&self, mul: &[isize]) -> Self {
+        let mut views = self.views.clone();
+        let p = views.pop().unwrap();
+        views.push(p.stride(mul));
+        ShapeTracker { views }
     }
 }
 

@@ -32,7 +32,7 @@ pub fn strides_for_shape(shape: &[isize]) -> Vec<isize> {
             *st = tmp;
             tmp *= *sh
         });
-    strides
+    filter_strides(shape, &strides)
 }
 
 pub fn filter_strides(shape: &[isize], strides: &[isize]) -> Vec<isize> {

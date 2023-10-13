@@ -37,8 +37,7 @@ fn div(lhs: ArcNode, rhs: ArcNode, factoring_allowed: Option<bool>) -> ArcNode {
     if lhs.key() == rhs.key() {
         return num(1);
     }
-    if (&rhs - &lhs).min().unwrap() > 0 && lhs.min().unwrap() >= 0 {
-        return num(0);
+    if (&rhs - &lhs).min().unwrap() > 0 && lhs.min().unwrap() >= 0 { return num(0);
     }
     let b = rhs.num_val().unwrap();
     assert!(b != 0);

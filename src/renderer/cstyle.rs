@@ -6,7 +6,7 @@ use crate::{
     ops::{Binary, Op, OpType},
 };
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct CstyleLanguage {
     pub size_prefix: String,
     pub generic_var_prefix: Option<String>,

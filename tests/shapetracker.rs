@@ -260,7 +260,7 @@ mod test_index_expr_2d {
         for ((st, base_shape), &offset) in
             s.sts.iter_mut().zip(s.shape.iter()).zip(s.offsets.iter())
         {
-            st.permute(&[1, 0]);
+            *st = st.permute(&[1, 0]);
             let pd = base_shape.iter().product::<isize>();
             let b0 = base_shape[0];
             let b1 = base_shape[1];
@@ -282,7 +282,7 @@ mod test_index_expr_2d {
             let pd = base_shape.iter().product::<isize>();
             let b0 = base_shape[0];
             let b1 = base_shape[1];
-            st.reshape(&[b0, 1, b1]);
+            *st = st.reshape(&[b0, 1, b1]);
 
             s.node_exprs.push(Arc::new(move |idx| idx % pd + offset));
             s.idxs_exprs
@@ -299,8 +299,7 @@ mod test_index_expr_2d {
         {
             let b0 = base_shape[0];
             let b1 = base_shape[1];
-            st.reshape(&[b0, 1, b1]);
-            st.expand(&[b0, b1, b1]);
+            *st = st.reshape(&[b0, 1, b1]).expand(&[b0, b1, b1]);
             s.node_exprs.push(Arc::new(move |idx| {
                 &idx / (b1 * b1) % b0 * b1 + &idx % b1 + offset
             }));
@@ -319,8 +318,7 @@ mod test_index_expr_2d {
             let pd = base_shape.iter().product::<isize>();
             let b0 = base_shape[0];
             let b1 = base_shape[1];
-            st.permute(&[1, 0]);
-            st.reshape(&[b0 / 5, 1, b1 * 5]);
+            *st = st.permute(&[1, 0]).reshape(&[b0 / 5, 1, b1 * 5]);
             s.node_exprs.push(Arc::new(move |idx| {
                 &idx % pd % b0 * b1 + &idx / b0 % b1 + offset
             }));
@@ -342,8 +340,7 @@ mod test_index_expr_2d {
             let pd = base_shape.iter().product::<isize>();
             let b0 = base_shape[0];
             let b1 = base_shape[1];
-            st.permute(&[1, 0]);
-            st.reshape(&[1, b0 / 5, b1 * 5]);
+            *st = st.permute(&[1, 0]).reshape(&[1, b0 / 5, b1 * 5]);
             s.node_exprs.push(Arc::new(move |idx| {
                 &idx % pd % b0 * b1 + &idx / b0 % b1 + offset
             }));

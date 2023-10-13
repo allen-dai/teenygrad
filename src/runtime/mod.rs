@@ -9,7 +9,17 @@ pub mod opencl;
 
 pub trait Runtime {}
 
-pub trait RawBuf: Debug {}
+pub trait RawBuf: Debug {
+    fn from_cpu() -> Self
+    where
+        Self: Sized,
+    {
+        unimplemented!()
+    }
+    fn to_cpu(&self) -> Cpu {
+        unimplemented!()
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct RawBuffer {
@@ -19,30 +29,16 @@ pub struct RawBuffer {
     device: String,
 }
 
-impl RawBufferNew for RawBuffer {
-    fn new<B: 'static + RawBuf>(size: usize, dtype: dtype::DType, buf: B, device: String) -> Self {
+unsafe impl Send for RawBuffer {}
+unsafe impl Sync for RawBuffer {}
+
+impl RawBuffer {
+    fn new<B: 'static + RawBuf>(size: usize, dtype: dtype::DType, buf: B, device: &str) -> Self {
         Self {
             size,
             dtype,
             buf: Arc::new(Mutex::new(buf)),
-            device,
+            device: device.to_string(),
         }
-    }
-}
-
-pub trait RawBufferNew {
-    fn new<B: 'static + RawBuf>(size: usize, dtype: dtype::DType, buf: B, device: String) -> Self;
-}
-
-pub trait RawBufferCopyFrom: RawBufferNew {
-    fn _copy_from(&mut self, x: Cpu) {
-        unimplemented!()
-    }
-
-    fn from_cpu() -> Self
-    where
-        Self: Sized,
-    {
-        todo!()
     }
 }

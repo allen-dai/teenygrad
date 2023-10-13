@@ -4,9 +4,14 @@ use std::{
 };
 
 use crate::{
+    ops::{ScheduleItem, Unary},
+    prelude::*,
+};
+
+use crate::{
     backend::Backend,
     codegen::linearizer::Args,
-    dtype::DType,
+    dtype::{float32, DType},
     ops::{Binary, LazyOp, LazyOpSrc, LazyOpsDefaultImpl, Load, Movement, Op, OpType},
     runtime::RawBuffer,
     shape::{
@@ -24,6 +29,7 @@ pub(crate) fn lb_id() -> LazyBufferId {
 }
 unsafe impl Send for LazyBuffer {}
 unsafe impl Sync for LazyBuffer {}
+
 #[derive(Clone)]
 pub struct LazyBuffer {
     pub lazyop: LazyOp,
@@ -54,8 +60,8 @@ impl core::fmt::Debug for LazyBuffer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "<LB {:?} {:?} op={:?} st={:?}",
-            self.shape, self.dtype, self.lazyop, self.st
+            "<LB {:?} {:?} op={:?} st={:?} ",
+            self.shape, self.dtype, self.lazyop.optype, self.st.views
         )
     }
 }
@@ -68,15 +74,8 @@ impl LazyBuffer {
         mut op: LazyOp,
         dtype: DType,
         src: Option<RawBuffer>,
-        mut base: Option<LazyBuffer>,
+        mut base: Option<Box<LazyBuffer>>,
     ) -> Self {
-        let base = {
-            if base.is_none() {
-                None
-            } else {
-                Some(Box::new(base.take().unwrap()))
-            }
-        };
         let mut ret = Self {
             device: device.into(),
             lazyop: op,
@@ -96,13 +95,22 @@ impl LazyBuffer {
         if ret.base.is_some() {
             ret.base.as_mut().unwrap().views.insert(rc.clone());
         } else {
-            assert!(ret.st.contiguous());
+            assert!(ret.st.contiguous(), "{:?}", ret.st);
         }
         ret
     }
 
     pub fn is_realized(&self) -> bool {
         self.base.as_ref().is_some_and(|b| b._realized.is_some())
+    }
+
+    pub fn map_buffers(&self, real_srcs: &HashMap<&LazyBuffer, Option<LazyOpSrc>>) -> Self {
+        if let Some(s) = real_srcs.get(self) {
+            if let Some(ss) = s {
+                return ss.lb().clone()
+            }
+        }
+        self.clone()
     }
 
     pub fn loadop(
@@ -136,8 +144,8 @@ impl LazyBuffer {
             Some(vec![Args::Str(val)]),
             None,
         )
-        .reshape(&vec![1; self.shape.len()])
-        .expand(&self.shape)
+        ._reshape(&vec![1; self.shape.len()])
+        ._expand(&self.shape)
     }
 
     pub fn from_cpu<T: num_traits::ToBytes>(x: Vec<T>) -> Self {
@@ -195,8 +203,68 @@ impl LazyBuffer {
                 .is_some_and(|b| b.lazyop.optype == Load::Const)
     }
 
-    pub fn e(&mut self, optype: OpType, src: Self, arg: Option<Vec<Args>>) -> Self {
-        let srcs = vec![src, self.clone()];
+    // pub fn schedule(&self, seen: Option<&mut HashSet<&LazyBuffer>>) -> Vec<ScheduleItem> {
+    //     let mut new_seen = HashSet::new();
+    //     let mut seen = if let Some(s) = seen { s } else { &mut new_seen };
+    //     let mut seen: HashSet<&LazyBuffer> = HashSet::new();
+    //     if seen.contains(&self) || self.is_realized() || self.is_unrealized_const() {
+    //         return vec![];
+    //     }
+    //     seen.insert(&self);
+    //     if self.base.is_none() || self.base.as_ref().unwrap().id != self.id {
+    //         return self.base.as_ref().unwrap().schedule(Some(&mut seen));
+    //     }
+    //     let mut lazyop = if self.lazyop.optype != Load::Contiguous {
+    //         self.lazyop.clone()
+    //     } else {
+    //         LazyOp::new(
+    //             OpType::Unary(Unary::Noop),
+    //             self.lazyop.src.clone(),
+    //             Some(self.lazyop.args.clone()),
+    //         )
+    //     };
+    //     if matches!(self.lazyop.optype, OpType::Binary(_)) {
+    //         lazyop = _ast_binaryops(&lazyop, &self.shape)
+    //     } else if matches!(self.lazyop.optype, OpType::Reduce(_)) {
+    //         lazyop = _ast_reduceops(&lazyop)
+    //     }
+    //     let mut ret = vec![];
+    //     for x in self.lazyop.buffers.iter() {
+    //         ret.extend(x.schedule(Some(&mut seen)));
+    //     }
+    //     // WARN: - this var_vals is produced in this order: here <- Shaptracker <- Views <- Symbolic.
+    //     //         This means the min/max field in Nodes can be Node/Int, which I dont think is
+    //     //         needed, it also makes everything really really ugly and complicated.
+    //     //         And im not sure if that is correct since when creating some of the node
+    //     //         types, you need ordering, and you cant really compare string to int and decide
+    //     //         what is greater/lesser, espeically when that min/max node is a var.
+    //     //       - Check FIXMEs on Mul/Div/Mod node in symbolic file.
+    //     //
+    //     // var_vals = dict(sorted(merge_dicts([self.st.var_vals] + [buf.st.var_vals for buf in op.buffers]).items(), key=lambda kv:cast(Variable,kv[0]).key))
+    //     todo!()
+    // }
+
+    pub fn realize(&self) -> Self {
+        let mut ret = self.clone();
+        if !ret.is_realized() {
+            match self.lazyop.optype {
+                OpType::Binary(_) => ret.lazyop = _ast_binaryops(&ret.lazyop, &ret.shape),
+                OpType::Reduce(_) => ret.lazyop = _ast_reduceops(&ret.lazyop),
+                OpType::Load(_) => todo!(),
+                _ => (),
+            }
+            if !ret.is_realized() {
+                for x in ret.lazyop.buffers.iter_mut() {
+                    println!("{:?}", x.lazyop.optype);
+                    *x = x.realize();
+                }
+            }
+        }
+        ret
+    }
+
+    pub fn e(&self, optype: OpType, src: Self, arg: Option<Vec<Args>>) -> Self {
+        let srcs = vec![self.clone(),src];
         let out_device = srcs[0].device.clone();
         let out_shape = srcs[0].shape.clone();
         let out_dtype = if srcs[0].dtype.itemsize > srcs[1].dtype.itemsize {
@@ -234,7 +302,7 @@ impl LazyBuffer {
         )
     }
 
-    pub fn _reduce_op(&mut self, optype: OpType, new_shape: &[isize]) -> Self {
+    pub fn _reduce_op(&self, optype: OpType, new_shape: &[isize]) -> Self {
         if self.shape == new_shape {
             return self.clone();
         }
@@ -290,15 +358,24 @@ impl LazyBuffer {
 
         let splitted_shape = |dim_aft_div: Vec<isize>| -> Vec<isize> {
             let dim_to_split = dim_to_split as usize;
-            vec![self.shape[..dim_to_split].to_vec(), vec![self.shape[dim_to_split] / divisor], dim_aft_div, self.shape[dim_to_split+1..].to_vec()].concat()
+            vec![
+                self.shape[..dim_to_split].to_vec(),
+                vec![self.shape[dim_to_split] / divisor],
+                dim_aft_div,
+                self.shape[dim_to_split + 1..].to_vec(),
+            ]
+            .concat()
         };
         let sh1 = splitted_shape(vec![divisor]);
         let sh2 = splitted_shape(vec![1]);
         let sh3 = splitted_shape(vec![]);
-        self.reshape(&sh1)._reduce_op(optype.clone(), &sh2).reshape(&sh3)._reduce_op(optype, new_shape)
+        self._reshape(&sh1)
+            ._reduce_op(optype.clone(), &sh2)
+            ._reshape(&sh3)
+            ._reduce_op(optype, new_shape)
     }
 
-    pub fn _movement_op(&mut self, st: ShapeTracker, optype: OpType, arg: &[isize]) -> Self {
+    pub fn _movement_op(&self, st: ShapeTracker, optype: OpType, arg: &[isize]) -> Self {
         if matches!(self.lazyop.optype, OpType::Binary(_))
             && !self.is_realized()
             && (matches!(
@@ -312,8 +389,8 @@ impl LazyBuffer {
         {
             return match optype {
                 OpType::Movement(m) => match m {
-                    Movement::Reshape => self.reshape(arg),
-                    Movement::Expand => self.expand(arg),
+                    Movement::Reshape => self._reshape(arg),
+                    Movement::Expand => self._expand(arg),
                     Movement::Permute => todo!(),
                     Movement::Pad => todo!(),
                     Movement::Shrink => todo!(),
@@ -328,7 +405,7 @@ impl LazyBuffer {
                 && root != self
                 && st.shape().iter().product::<isize>() == root.shape.iter().product::<isize>()
             {
-                return root.clone().reshape(&st.shape());
+                return root.clone()._reshape(&st.shape());
             }
         }
 
@@ -342,24 +419,28 @@ impl LazyBuffer {
                 Some(arg.iter().map(|i| Args::Int(*i)).collect::<Vec<Args>>()),
             ),
             self.dtype.clone(),
-            None,
+            self.base.clone(),
         )
     }
 
-    pub fn reshape(&mut self, arg: &[isize]) -> Self {
+    pub fn _reshape(&self, arg: &[isize]) -> Self {
         if self.shape == arg {
             return self.clone();
         }
         if !self.is_realized() && self.lazyop.optype == Movement::Reshape {
             let s_clone = self.clone();
-            self.lazyop.src[0].lb_mut().children.remove(&s_clone);
-            return self.lazyop.src[0].lb_mut().reshape(arg);
+            let mut ret = self.lazyop.src[0].clone();
+            ret.lb_mut().children.remove(&s_clone);
+            return ret.lb_mut()._reshape(arg);
         }
-        self.st.reshape(arg);
-        self._movement_op(self.st.clone(), OpType::Movement(Movement::Reshape), arg)
+        self._movement_op(
+            self.st.reshape(arg),
+            OpType::Movement(Movement::Reshape),
+            arg,
+        )
     }
 
-    pub fn pad(&mut self, arg: &[isize]) -> Self {
+    pub fn _pad(&self, arg: &[isize]) -> Self {
         if arg.iter().all(|v| *v == 0) {
             return self.clone();
         }
@@ -370,36 +451,35 @@ impl LazyBuffer {
                 .iter()
                 .map(|v| v.to_int())
                 .collect::<Vec<isize>>();
-            return self.lazyop.src[0].lb_mut().pad(&op_arg);
+            return self.lazyop.src[0].clone().lb_mut()._pad(&op_arg);
         }
 
         let mut aarg = vec![];
         for a in arg.windows(2) {
             aarg.push((a[0], a[1]))
         }
-        self.st.pad(&aarg);
-        self._movement_op(self.st.clone(), OpType::Movement(Movement::Pad), arg)
+        self._movement_op(self.st.pad(&aarg), OpType::Movement(Movement::Pad), arg)
     }
 
-    pub fn expand(&mut self, arg: &[isize]) -> Self {
+    pub fn _expand(&self, arg: &[isize]) -> Self {
         if &self.shape == arg {
             return self.clone();
         }
         if !self.is_realized() && self.lazyop.optype == Movement::Expand {
-            return self.lazyop.src[0].lb_mut().expand(arg);
+            let mut ret = self.lazyop.src[0].clone();
+            return ret.lb_mut()._expand(arg);
         }
-        self.st.expand(arg);
-        return self._movement_op(self.st.clone(), OpType::Movement(Movement::Expand), arg);
+        return self._movement_op(self.st.expand(arg), OpType::Movement(Movement::Expand), arg);
     }
 
-    pub fn permute(&mut self, arg: &[isize]) -> Self {
+    pub fn _permute(&self, arg: &[isize]) -> Self {
         if arg == &(0..arg.len()).map(|v| v as isize).collect::<Vec<isize>>() {
             return self.clone();
         }
         if !self.is_realized() {
             return match &self.lazyop.optype {
                 OpType::Movement(m) => match m {
-                    Movement::Permute => self.lazyop.src[0].lb_mut().permute(
+                    Movement::Permute => self.lazyop.src[0].clone().lb_mut()._permute(
                         &self
                             .lazyop
                             .args
@@ -407,7 +487,7 @@ impl LazyBuffer {
                             .map(|v| v.to_int())
                             .collect::<Vec<isize>>(),
                     ),
-                    Movement::Expand => self.lazyop.src[0].lb_mut().permute(arg).expand(
+                    Movement::Expand => self.lazyop.src[0].clone().lb_mut()._permute(arg)._expand(
                         &arg.iter()
                             .map(|i| self.lazyop.args[*i as usize].to_int())
                             .collect::<Vec<isize>>(),
@@ -420,20 +500,23 @@ impl LazyBuffer {
                         .map(|i| self.lazyop.args[*i as usize].clone())
                         .collect::<Vec<Args>>();
                     let s_clone = self.clone();
-                    let src = self.lazyop.src[0].lb_mut();
+                    let mut src = self.lazyop.src[0].clone();
                     let optype = &self.lazyop.optype;
-                    src.children.remove(&s_clone);
+                    src.lb_mut().children.remove(&s_clone);
                     //return src.permute(arg).r(cast(ReduceOps, rop), narg)
                     todo!()
                 }
                 _ => unreachable!(),
             };
         }
-        self.st.permute(arg);
-        self._movement_op(self.st.clone(), OpType::Movement(Movement::Permute), arg)
+        self._movement_op(
+            self.st.permute(arg),
+            OpType::Movement(Movement::Permute),
+            arg,
+        )
     }
 
-    pub fn shrink(&mut self, arg: &[isize]) -> Self {
+    pub fn _shrink(&self, arg: &[isize]) -> Self {
         if self
             .shape
             .iter()
@@ -448,30 +531,29 @@ impl LazyBuffer {
                 aarg.push(be1[0].to_int() + be2[0]);
                 aarg.push(be1[0].to_int() + be2[1]);
             }
-            return self.lazyop.src[0].lb_mut().shrink(&aarg);
+            return self.lazyop.src[0].clone().lb_mut()._shrink(&aarg);
         }
-        self.st.shrink(
+        let st = self.st.shrink(
             &arg.windows(2)
                 .map(|a| (a[0], a[1]))
                 .collect::<Vec<(isize, isize)>>(),
         );
-        self._movement_op(self.st.clone(), OpType::Movement(Movement::Shrink), arg)
+        self._movement_op(st, OpType::Movement(Movement::Shrink), arg)
     }
 
-    pub fn stride(&mut self, arg: &[isize]) -> Self {
+    pub fn _stride(&self, arg: &[isize]) -> Self {
         if arg.iter().all(|i| *i == 1) {
             return self.clone();
         }
         if !self.is_realized() && self.lazyop.optype == Movement::Stride {
-            return self.lazyop.src[0].lb_mut().stride(
+            return self.lazyop.src[0].clone().lb_mut()._stride(
                 &arg.iter()
                     .zip(self.lazyop.args.iter())
                     .map(|(a, aa)| a * aa.to_int())
                     .collect::<Vec<isize>>(),
             );
         }
-        self.st.stride(arg);
-        self._movement_op(self.st.clone(), OpType::Movement(Movement::Stride), arg)
+        self._movement_op(self.st.stride(arg), OpType::Movement(Movement::Stride), arg)
     }
 }
 
@@ -481,7 +563,7 @@ pub fn create_lazybuffer(
     optype: OpType,
     op: LazyOp,
     dtype: DType,
-    base: Option<LazyBuffer>,
+    base: Option<Box<LazyBuffer>>,
 ) -> LazyBuffer {
     if matches!(
         optype,
@@ -536,7 +618,36 @@ fn _ast_binaryops(op: &LazyOp, shape: &[isize]) -> LazyOp {
         })
         .collect();
     let mut intermediate_shape = shape;
-    todo!()
+    let mut top: Option<LazyOp> = None;
+    if !psrcs.is_empty() {
+        let psrc = psrcs[0];
+        if matches!(psrc.1.lazyop.optype, OpType::Reduce(_)) {
+            top = Some(_ast_reduceops(&psrc.1.lazyop));
+        }
+        real_srcs.insert(
+            psrc.0,
+            if top.is_none() {
+                None
+            } else {
+                Some(LazyOpSrc::LazyOp(top.clone().unwrap()))
+            },
+        );
+        if top.is_some() {
+            for x in top.as_ref().unwrap().buffers.iter() {
+                real_srcs.insert(x, Some(LazyOpSrc::LazyBuffer(x.clone())));
+            }
+        };
+        if psrc.0.shape != psrc.1.shape {
+            intermediate_shape = shape;
+        }
+    }
+    for (k, v) in real_srcs.iter_mut() {
+        if v.is_none() {
+            *v = Some(LazyOpSrc::LazyBuffer(k._reshape(intermediate_shape)));
+        }
+    }
+    let ast = op.map_buffers(&real_srcs);
+    LazyOp::new(OpType::Movement(Movement::Reshape), vec![ast], None)
 }
 
 fn get_single_root(root: &LazyBuffer) -> &LazyBuffer {
@@ -594,4 +705,164 @@ fn _push_movement_ops(srcs: &[&LazyBuffer]) -> Vec<LazyBuffer> {
         }
     }
     new_srcs
+}
+
+impl Backend for LazyBuffer {
+    type Dtype = f32;
+
+    type Buffer = LazyBuffer;
+
+    fn from(data: &[Self::Dtype]) -> Self {
+        todo!()
+    }
+
+    fn to_vec(&self) -> Vec<Self::Dtype> {
+        todo!()
+    }
+
+    fn empty(shape: &crate::prelude::Shape) -> Self {
+        todo!()
+    }
+
+    fn const_like(&self, const_: Self::Dtype) -> Self {
+        todo!()
+    }
+
+    fn rand(shape: &crate::prelude::Shape) -> Self {
+        Self::loadop(
+            OpType::Load(Load::Rand),
+            &shape
+                .dims
+                .iter()
+                .map(|i| *i as isize)
+                .collect::<Vec<isize>>(),
+            float32,
+            &DEVICE,
+            None,
+            None,
+        )
+    }
+
+    fn add(&self, rhs: &Self) -> Self {
+        self.e(OpType::Binary(Binary::Add), rhs.clone(), None)
+    }
+
+    fn sub(&self, rhs: &Self) -> Self {
+        self.e(OpType::Binary(Binary::Sub), rhs.clone(), None)
+    }
+
+    fn mul(&self, rhs: &Self) -> Self {
+        self.e(OpType::Binary(Binary::Mul), rhs.clone(), None)
+    }
+
+    fn div(&self, rhs: &Self) -> Self {
+        self.e(OpType::Binary(Binary::Div), rhs.clone(), None)
+    }
+
+    fn bmax(&self, rhs: &Self) -> Self {
+        self.e(OpType::Binary(Binary::Max), rhs.clone(), None)
+    }
+
+    fn cmplt(&self, rhs: &Self) -> Self {
+        self.e(OpType::Binary(Binary::Cmplt), rhs.clone(), None)
+    }
+
+    fn log2(&self) -> Self {
+        todo!()
+    }
+
+    fn exp2(&self) -> Self {
+        todo!()
+    }
+
+    fn sin(&self) -> Self {
+        todo!()
+    }
+
+    fn sqrt(&self) -> Self {
+        todo!()
+    }
+
+    fn sum(&self, axis: Option<isize>, keepdim: bool) -> Self {
+        todo!()
+    }
+
+    fn max(&self, axis: Option<isize>, keepdim: bool) -> Self {
+        todo!()
+    }
+
+    fn _where(&self, x: &Self, y: &Self) -> Self {
+        todo!()
+    }
+
+    fn permute<S: Into<crate::prelude::Shape>>(&self, permute: S) -> Self {
+        self._permute(&shape_to_ivec(&permute.into()))
+    }
+
+    fn reshape<S: Into<crate::prelude::Shape>>(&self, shape: S) -> Self {
+        self._reshape(&shape_to_ivec(&shape.into()))
+    }
+
+    fn expand<S: Into<crate::prelude::Shape>>(&self, shape: S) -> Self {
+        self._expand(&shape_to_ivec(&shape.into()))
+    }
+
+    fn shrink<A: Into<Vec<(usize, usize)>>>(&self, arg: A) -> Self {
+        let arg = arg.into();
+        let mut aarg = vec![];
+        for a in arg {
+            aarg.push(a.0 as isize);
+            aarg.push(a.1 as isize);
+        };
+        self._shrink(&aarg)
+    }
+
+    fn pad<A: Into<Vec<(usize, usize)>>>(&self, arg: A, const_value: Self::Dtype) -> Self {
+        let arg = arg.into();
+        let mut aarg = vec![];
+        for a in arg {
+            aarg.push(a.0 as isize);
+            aarg.push(a.1 as isize);
+        };
+        self._pad(&aarg)
+    }
+
+    fn shape(&self) -> crate::prelude::Shape {
+        self.shape
+            .iter()
+            .map(|i| *i as usize)
+            .collect::<Vec<usize>>()
+            .into()
+    }
+
+    fn strides(&self) -> crate::prelude::Shape {
+        self.st
+            .strides()
+            .iter()
+            .map(|i| *i as usize)
+            .collect::<Vec<usize>>()
+            .into()
+    }
+
+    fn contiguous(&self) -> Self {
+        todo!()
+    }
+}
+
+fn shape_to_ivec(sh: &Shape) -> Vec<isize> {
+    sh.dims.iter().map(|i| *i as isize).collect::<Vec<isize>>()
+}
+
+fn ivec_to_shape(sh: &Shape) -> Vec<isize> {
+    sh.dims.iter().map(|i| *i as isize).collect::<Vec<isize>>()
+}
+
+#[test]
+fn lazybuff_load() {
+    let t = Tensor::<LazyBuffer>::rand([3, 3]).reshape([1, 3, 3]);
+    let y = Tensor::<LazyBuffer>::rand([3, 3]).reshape([1, 3, 3]);
+    let z = t * y;
+    let x = z.inner.realize();
+    println!("{:?}", x.is_realized());
+    //println!("{:?}", t);
 }
