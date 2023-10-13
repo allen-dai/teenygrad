@@ -7,9 +7,12 @@ use crate::{
     backend::Backend,
     codegen::linearizer::Args,
     dtype::DType,
-    ops::{LazyOp, LazyOpSrc, LazyOpsDefaultImpl, Load, Movement, Op, OpType},
+    ops::{Binary, LazyOp, LazyOpSrc, LazyOpsDefaultImpl, Load, Movement, Op, OpType},
     runtime::RawBuffer,
-    shape::{shapetracker::ShapeTracker, symbolic::Variable},
+    shape::{
+        shapetracker::ShapeTracker,
+        symbolic::{gcd, Variable},
+    },
 };
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug, Hash)]
@@ -19,7 +22,8 @@ pub(crate) fn lb_id() -> LazyBufferId {
     static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     LazyBufferId(COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
 }
-
+unsafe impl Send for LazyBuffer {}
+unsafe impl Sync for LazyBuffer {}
 #[derive(Clone)]
 pub struct LazyBuffer {
     pub lazyop: LazyOp,
@@ -136,6 +140,164 @@ impl LazyBuffer {
         .expand(&self.shape)
     }
 
+    pub fn from_cpu<T: num_traits::ToBytes>(x: Vec<T>) -> Self {
+        todo!()
+    }
+
+    pub fn copy_to_device(&self, device: &str) -> Self {
+        if !self.is_realized()
+            && matches!(self.lazyop.optype, OpType::Load(_))
+            && self.lazyop.optype != Load::Const
+        {
+            return self.clone();
+        }
+        Self::loadop(
+            OpType::Load(Load::From),
+            &self.shape,
+            self.dtype.clone(),
+            &self.device,
+            None,
+            Some(self.contiguous()),
+        )
+    }
+
+    pub fn contiguous(&self) -> Self {
+        if !self.is_realized()
+            && matches!(self.lazyop.optype, OpType::Load(_))
+            && self.lazyop.optype != Load::Const
+        {
+            return self.clone();
+        }
+        if self.st.contiguous()
+            && self
+                .base
+                .as_ref()
+                .is_some_and(|b| self.st.size() == b.st.size())
+            && !self.is_unrealized_const()
+        {
+            todo!()
+        }
+        Self::loadop(
+            OpType::Load(Load::Contiguous),
+            &self.shape,
+            self.dtype.clone(),
+            &self.device,
+            None,
+            Some(self.clone()),
+        )
+    }
+
+    pub fn is_unrealized_const(&self) -> bool {
+        !self.is_realized()
+            && self
+                .base
+                .as_ref()
+                .is_some_and(|b| b.lazyop.optype == Load::Const)
+    }
+
+    pub fn e(&mut self, optype: OpType, src: Self, arg: Option<Vec<Args>>) -> Self {
+        let srcs = vec![src, self.clone()];
+        let out_device = srcs[0].device.clone();
+        let out_shape = srcs[0].shape.clone();
+        let out_dtype = if srcs[0].dtype.itemsize > srcs[1].dtype.itemsize {
+            srcs[0].dtype.clone()
+        } else {
+            srcs[1].dtype.clone()
+        };
+        // # if we are separated from other binary ops by movement ops, we push those movement ops above those binaryops
+        //     if SHUFFLE_MOVEMENT_OPS: srcs = _push_movement_ops(srcs)
+        //
+        //     # get outputs now
+        //     out_device, out_shape, out_dtype = srcs[0].device, srcs[0].shape, max([x.dtype for x in srcs]) if op != UnaryOps.CAST else cast(Tuple[DType, bool], arg)[0]
+        //
+        //     # push all contiguous to the end of BinaryOps. kernels 198 -> 196
+        //     if PUSH_CONTIGUOUS and any(not x.realized and x.op.op == LoadOps.CONTIGUOUS and len(x.op.src[0].children) <= 1 for x in srcs):
+        //       new_srcs: List[LazyBuffer] = []
+        //       for x in srcs:
+        //         if not x.realized and x.op.op == LoadOps.CONTIGUOUS and len(x.op.src[0].children) <= 1:
+        //           x.op.src[0].children.discard(x)
+        //           new_srcs.append(cast(LazyBuffer, x.op.src[0]))
+        //         else:
+        //           new_srcs.append(x)
+        //       return new_srcs[0].e(op, *new_srcs[1:], arg=arg).contiguous()
+        //
+        //     if MERGE_ELEMENTWISE_OPS:
+        //       # remove the buffers from any (childless) BinaryOps that feed into this
+        //       srcs = tuple([x.op if x.optype == BinaryOps and not x.children and not x.realized else x for x in srcs])  # type: ignore
+        create_lazybuffer(
+            &out_device,
+            ShapeTracker::new(&out_shape, None),
+            optype.clone(),
+            LazyOp::new(optype, srcs, None),
+            out_dtype,
+            None,
+        )
+    }
+
+    pub fn _reduce_op(&mut self, optype: OpType, new_shape: &[isize]) -> Self {
+        if self.shape == new_shape {
+            return self.clone();
+        }
+        let srcs = _push_movement_ops(&vec![&*self]);
+        let unbound_new_shape = new_shape;
+        create_lazybuffer(
+            &self.device,
+            ShapeTracker::new(&self.shape, None),
+            optype.clone(),
+            LazyOp::new(
+                optype,
+                srcs,
+                Some(
+                    unbound_new_shape
+                        .iter()
+                        .map(|i| Args::Int(*i))
+                        .collect::<Vec<Args>>(),
+                ),
+            ),
+            self.dtype.clone(),
+            None,
+        )
+    }
+
+    fn r(&mut self, optype: OpType, new_shape: &[isize]) -> Self {
+        if self.shape.iter().product::<isize>() / new_shape.iter().product::<isize>() < 32768 {
+            return self._reduce_op(optype, new_shape);
+        }
+        let mut t = vec![];
+        for (i, (&old, (&new, &stride))) in self
+            .shape
+            .iter()
+            .zip(new_shape.iter().zip(self.st.strides().iter()))
+            .enumerate()
+        {
+            if old == new {
+                continue;
+            }
+            let divisor = gcd(256, old);
+            let heuristic: f64 = if stride <= 0 {
+                divisor as f64 / stride as f64
+            } else {
+                0.0
+            };
+            let dim_to_split = i;
+            t.push((heuristic, divisor, dim_to_split));
+        }
+        let &(heuristic, divisor, dim_to_split) =
+            t.iter().max_by(|a, b| f64::total_cmp(&a.0, &b.0)).unwrap();
+        if divisor < 16 && heuristic < 0.1 {
+            return self._reduce_op(optype, new_shape);
+        }
+
+        let splitted_shape = |dim_aft_div: Vec<isize>| -> Vec<isize> {
+            let dim_to_split = dim_to_split as usize;
+            vec![self.shape[..dim_to_split].to_vec(), vec![self.shape[dim_to_split] / divisor], dim_aft_div, self.shape[dim_to_split+1..].to_vec()].concat()
+        };
+        let sh1 = splitted_shape(vec![divisor]);
+        let sh2 = splitted_shape(vec![1]);
+        let sh3 = splitted_shape(vec![]);
+        self.reshape(&sh1)._reduce_op(optype.clone(), &sh2).reshape(&sh3)._reduce_op(optype, new_shape)
+    }
+
     pub fn _movement_op(&mut self, st: ShapeTracker, optype: OpType, arg: &[isize]) -> Self {
         if matches!(self.lazyop.optype, OpType::Binary(_))
             && !self.is_realized()
@@ -151,9 +313,9 @@ impl LazyBuffer {
             return match optype {
                 OpType::Movement(m) => match m {
                     Movement::Reshape => self.reshape(arg),
+                    Movement::Expand => self.expand(arg),
                     Movement::Permute => todo!(),
                     Movement::Pad => todo!(),
-                    Movement::Expand => self.expand(arg),
                     Movement::Shrink => todo!(),
                     Movement::Stride => todo!(),
                 },
@@ -188,8 +350,7 @@ impl LazyBuffer {
         if self.shape == arg {
             return self.clone();
         }
-        if !self.is_realized() && matches!(self.lazyop.optype, OpType::Movement(Movement::Reshape))
-        {
+        if !self.is_realized() && self.lazyop.optype == Movement::Reshape {
             let s_clone = self.clone();
             self.lazyop.src[0].lb_mut().children.remove(&s_clone);
             return self.lazyop.src[0].lb_mut().reshape(arg);
@@ -202,7 +363,7 @@ impl LazyBuffer {
         if arg.iter().all(|v| *v == 0) {
             return self.clone();
         }
-        if !self.is_realized() && matches!(self.lazyop.optype, OpType::Movement(Movement::Pad)) {
+        if !self.is_realized() && self.lazyop.optype == Movement::Pad {
             let op_arg = self
                 .lazyop
                 .args
@@ -224,7 +385,7 @@ impl LazyBuffer {
         if &self.shape == arg {
             return self.clone();
         }
-        if !self.is_realized() && matches!(self.lazyop.optype, OpType::Movement(Movement::Expand)) {
+        if !self.is_realized() && self.lazyop.optype == Movement::Expand {
             return self.lazyop.src[0].lb_mut().expand(arg);
         }
         self.st.expand(arg);
@@ -270,6 +431,47 @@ impl LazyBuffer {
         }
         self.st.permute(arg);
         self._movement_op(self.st.clone(), OpType::Movement(Movement::Permute), arg)
+    }
+
+    pub fn shrink(&mut self, arg: &[isize]) -> Self {
+        if self
+            .shape
+            .iter()
+            .zip(arg.windows(2))
+            .all(|(sh, ab)| ab[1] - ab[0] == *sh)
+        {
+            return self.clone();
+        }
+        if !self.is_realized() && self.lazyop.optype == Movement::Shrink {
+            let mut aarg = vec![];
+            for (be1, be2) in self.lazyop.args.windows(2).zip(arg.windows(2)) {
+                aarg.push(be1[0].to_int() + be2[0]);
+                aarg.push(be1[0].to_int() + be2[1]);
+            }
+            return self.lazyop.src[0].lb_mut().shrink(&aarg);
+        }
+        self.st.shrink(
+            &arg.windows(2)
+                .map(|a| (a[0], a[1]))
+                .collect::<Vec<(isize, isize)>>(),
+        );
+        self._movement_op(self.st.clone(), OpType::Movement(Movement::Shrink), arg)
+    }
+
+    pub fn stride(&mut self, arg: &[isize]) -> Self {
+        if arg.iter().all(|i| *i == 1) {
+            return self.clone();
+        }
+        if !self.is_realized() && self.lazyop.optype == Movement::Stride {
+            return self.lazyop.src[0].lb_mut().stride(
+                &arg.iter()
+                    .zip(self.lazyop.args.iter())
+                    .map(|(a, aa)| a * aa.to_int())
+                    .collect::<Vec<isize>>(),
+            );
+        }
+        self.st.stride(arg);
+        self._movement_op(self.st.clone(), OpType::Movement(Movement::Stride), arg)
     }
 }
 
@@ -364,4 +566,32 @@ fn get_movementroot_contiguous(x: &LazyBuffer) -> &LazyBuffer {
         return get_movementroot(x, true);
     }
     x
+}
+
+fn _push_movement_ops(srcs: &[&LazyBuffer]) -> Vec<LazyBuffer> {
+    let mut new_srcs = vec![];
+    for &x in srcs {
+        let mut mops = vec![];
+        let mut bx = x;
+        while !bx.is_realized()
+            && matches!(bx.lazyop.optype, OpType::Movement(_))
+            && bx.lazyop.optype != Movement::Expand
+            && bx.children.len() <= 1
+        {
+            mops.push((bx.lazyop.optype.clone(), bx.lazyop.args.clone()));
+            assert!(matches!(bx.lazyop.src[0], LazyOpSrc::LazyBuffer(_)));
+            bx = bx.lazyop.src[0].lb();
+        }
+        if mops.len() > 0
+            && !bx.is_realized()
+            && matches!(bx.lazyop.optype, OpType::Binary(_))
+            && bx.children.len() <= 1
+            && mops.iter().all(|m| m.0 != Movement::Pad)
+        {
+            todo!()
+        } else {
+            new_srcs.push((*x).clone());
+        }
+    }
+    new_srcs
 }

@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use crate::{lazy::LazyBuffer, runtime::Runtime, shape::shapetracker::ShapeTracker, codegen::linearizer::Args};
+use crate::{
+    codegen::linearizer::Args, lazy::LazyBuffer, runtime::Runtime,
+    shape::shapetracker::ShapeTracker,
+};
 
 pub trait Op: 'static + core::fmt::Debug + Send + Sync {
     // Unary
@@ -163,6 +166,26 @@ pub enum OpType {
     Movement(Movement),
     Load(Load),
 }
+
+macro_rules! optype_cmp {
+    ($t: ident) => {
+        impl PartialEq<$t> for OpType {
+            fn eq(&self, other: &$t) -> bool {
+                match self {
+                    OpType::$t(x) => x == other,
+                    _ => false,
+                }
+            }
+        }
+    };
+}
+
+optype_cmp!(Unary);
+optype_cmp!(Binary);
+optype_cmp!(Reduce);
+optype_cmp!(Ternary);
+optype_cmp!(Movement);
+optype_cmp!(Load);
 
 #[derive(Debug, Clone)]
 pub enum LazyOpSrc {
