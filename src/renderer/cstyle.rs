@@ -3,7 +3,7 @@ use std::{collections::HashMap, fmt::Display};
 use crate::{
     codegen::linearizer::{Args, UOp, UOps},
     dtype,
-    ops::{Binary, Op, OpType},
+    ops::{Binary, Op, OpType}, lazy::LazyBuffer,
 };
 
 #[derive(Debug, Default, Clone)]
@@ -205,7 +205,7 @@ impl CstyleLanguage {
         &self,
         function_name: &str,
         kernel: &[String],
-        bufs: &[(String, dtype::DType)],
+        bufs: &[(LazyBuffer, dtype::DType)],
         local_size: &[usize],
         prekernel: &[String],
     ) -> String {
@@ -253,7 +253,7 @@ impl CstyleLanguage {
 
         let mut args = buftypes
             .iter()
-            .map(|(name, t)| format!("{t} {name}"))
+            .map(|(name, t)| format!("{t} {name:?}"))
             .collect::<Vec<String>>();
         args.extend(self.extra_args.clone());
         prg += &args.join(", ");

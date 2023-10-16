@@ -1,4 +1,4 @@
-use crate::{dtype, ops::OpType};
+use crate::{dtype, ops::OpType, lazy::LazyBuffer};
 use num_traits::{Float, PrimInt};
 
 #[allow(non_camel_case_types)]
@@ -24,7 +24,7 @@ pub enum UOps {
 pub enum Args {
     Str(String),
     Op(OpType),
-    Buf((String, dtype::DType)),
+    Buf((LazyBuffer, dtype::DType)),
     Int(isize),
 }
 
@@ -43,7 +43,7 @@ impl Args {
         }
     }
 
-    pub fn to_buf(&self) -> (String, dtype::DType) {
+    pub fn to_buf(&self) -> (LazyBuffer, dtype::DType) {
         match self {
             Args::Buf(buf) => buf.clone(),
             t => panic!("Can not to_buf() {t:?}"),

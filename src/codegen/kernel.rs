@@ -57,7 +57,6 @@ impl Kenrel {
         let mut tmp = ast.buffers.clone();
         tmp.dedup();
         bufs.extend(tmp);
-
         todo!()
     }
 }
