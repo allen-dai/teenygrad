@@ -149,6 +149,7 @@ pub enum Movement {
     Expand,
     Shrink,
     Stride,
+    AsStrided
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -162,6 +163,12 @@ pub enum Load {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Buffer {
+    Const,
+    Mem
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum OpType {
     Unary(Unary),
     Binary(Binary),
@@ -169,6 +176,7 @@ pub enum OpType {
     Ternary(Ternary),
     Movement(Movement),
     Load(Load),
+    Buffer(Buffer)
 }
 
 macro_rules! optype_cmp {
@@ -190,6 +198,7 @@ optype_cmp!(Reduce);
 optype_cmp!(Ternary);
 optype_cmp!(Movement);
 optype_cmp!(Load);
+optype_cmp!(Buffer);
 
 #[derive(Debug, Clone)]
 pub enum LazyOpSrc {

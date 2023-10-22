@@ -391,10 +391,7 @@ impl LazyBuffer {
                 OpType::Movement(m) => match m {
                     Movement::Reshape => self._reshape(arg),
                     Movement::Expand => self._expand(arg),
-                    Movement::Permute => todo!(),
-                    Movement::Pad => todo!(),
-                    Movement::Shrink => todo!(),
-                    Movement::Stride => todo!(),
+                    _ => todo!(),
                 },
                 _ => unreachable!(),
             };
