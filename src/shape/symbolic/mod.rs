@@ -1,7 +1,7 @@
 pub mod core_ops;
 
 use std::hash::Hash;
-use std::{cmp::PartialEq, collections::HashMap, fmt::Display, rc::Rc, sync::Arc};
+use std::{cmp::PartialEq, collections::HashMap, sync::Arc};
 
 #[derive(Clone, Eq, Debug)]
 pub struct ArcNode(Arc<dyn Node>);
@@ -29,15 +29,17 @@ impl core::ops::Deref for ArcNode {
     }
 }
 
-fn lt(mut lhs: ArcNode, b: ArcNode) -> ArcNode {
+fn lt(lhs: ArcNode, b: ArcNode) -> ArcNode {
     create_node(LtNode::new(lhs, b))
 }
 
+#[allow(unused_variables)]
 fn div(lhs: ArcNode, rhs: ArcNode, factoring_allowed: Option<bool>) -> ArcNode {
     if lhs.key() == rhs.key() {
         return num(1);
     }
-    if (&rhs - &lhs).min().unwrap() > 0 && lhs.min().unwrap() >= 0 { return num(0);
+    if (&rhs - &lhs).min().unwrap() > 0 && lhs.min().unwrap() >= 0 {
+        return num(0);
     }
     let b = rhs.num_val().unwrap();
     assert!(b != 0);
@@ -51,7 +53,7 @@ fn div(lhs: ArcNode, rhs: ArcNode, factoring_allowed: Option<bool>) -> ArcNode {
     if min < 0 {
         let offset = min.div_euclid(b);
         // println!("{min}/{b}={offset}");
-        return div((&lhs + -offset * b), rhs, Some(false)) + offset;
+        return div(&lhs + -offset * b, rhs, Some(false)) + offset;
     }
     create_node(DivNode::new(lhs, rhs))
 }
@@ -410,7 +412,7 @@ impl Node for Variable {
     fn render(&self, ops: Arc<dyn NodeOp>, ctx: Option<&str>, strip_paren: bool) -> String {
         let mut ret = ops.variable(self.to_arc(), ctx);
         if strip_paren && ret.chars().nth(0).unwrap() == '(' {
-            ret.replace("(", "").replace(")", "");
+            ret = ret.replace("(", "").replace(")", "");
         }
         ret
     }
@@ -437,7 +439,7 @@ impl Node for SumNode {
     }
 
     fn _mul(&self, rhs: ArcNode) -> ArcNode {
-        let mut a: Vec<ArcNode> = self.nodes.iter().map(|n| n._mul(rhs.to_arc())).collect();
+        let a: Vec<ArcNode> = self.nodes.iter().map(|n| n._mul(rhs.to_arc())).collect();
         sum(&a)
     }
 
@@ -472,7 +474,7 @@ impl Node for SumNode {
         );
         let mut ret = ops.sum(self.to_arc(), ctx);
         if strip_paren && ret.chars().nth(0).unwrap() == '(' {
-            ret.replace("(", "").replace(")", "");
+            ret = ret.replace("(", "").replace(")", "");
         }
         ret
     }
@@ -504,7 +506,10 @@ impl Node for SumNode {
         let mut muls = vec![];
         let mut others = vec![];
         for x in lhs.nodes() {
-            if x.is_mul() && x.b().unwrap().num_val().unwrap() > 0 && x.max().unwrap() >= b.num_val().unwrap() {
+            if x.is_mul()
+                && x.b().unwrap().num_val().unwrap() > 0
+                && x.max().unwrap() >= b.num_val().unwrap()
+            {
                 muls.push(x.clone());
             } else {
                 others.push(x.clone());
@@ -607,7 +612,7 @@ impl Node for SumNode {
         if factoring_allowed.is_some_and(|x| x == false) {
             return div(self.to_arc(), rhs, Some(false));
         }
-        let mut b = rhs.num_val().unwrap();
+        let b = rhs.num_val().unwrap();
         let mut fully_divided = vec![];
         let mut rest = vec![];
         let mut _gcd = rhs.num_val().unwrap();
@@ -678,7 +683,7 @@ impl Node for MulNode {
     }
 
     fn _mul(&self, rhs: ArcNode) -> ArcNode {
-        self.a._mul((self.b._mul(rhs)))
+        self.a._mul(self.b._mul(rhs))
     }
 
     fn _div(&self, rhs: ArcNode, factoring_allowed: Option<bool>) -> ArcNode {
@@ -730,13 +735,13 @@ impl Node for MulNode {
         );
         let mut ret = ops.mul(self.to_arc(), ctx);
         if strip_paren && ret.chars().nth(0).unwrap() == '(' {
-            ret.replace("(", "").replace(")", "");
+            ret = ret.replace("(", "").replace(")", "");
         }
         ret
     }
 
     fn _mod(&self, rhs: ArcNode) -> ArcNode {
-        let a = (&self.a * &(&self.b % &rhs));
+        let a = &self.a * &(&self.b % &rhs);
         _mod(a, rhs)
     }
 
@@ -777,6 +782,7 @@ impl Node for NumNode {
         true
     }
 
+    #[allow(unused_variables)]
     fn render(&self, ops: Arc<dyn NodeOp>, ctx: Option<&str>, strip_paren: bool) -> String {
         self.b.to_string()
     }
@@ -812,6 +818,7 @@ impl DivNode {
 }
 
 impl Node for DivNode {
+    #[allow(unused_variables)]
     fn _div(&self, rhs: ArcNode, factoring_allowed: Option<bool>) -> ArcNode {
         self.a._div(self.b._mul(rhs), None)
     }
@@ -866,7 +873,7 @@ impl Node for DivNode {
         );
         let mut ret = ops.div(self.to_arc(), ctx);
         if strip_paren && ret.chars().nth(0).unwrap() == '(' {
-            ret.replace("(", "").replace(")", "");
+            ret = ret.replace("(", "").replace(")", "");
         }
         ret
     }
@@ -896,6 +903,7 @@ impl LtNode {
     }
 }
 
+#[allow(unused_variables)]
 impl Node for LtNode {
     fn _mul(&self, rhs: ArcNode) -> ArcNode {
         (self.a.clone() * rhs.clone()).lt(self.b.clone() * rhs.clone())
@@ -930,7 +938,7 @@ impl Node for LtNode {
         );
         let mut ret = ops.lt(self.to_arc(), ctx);
         if strip_paren && ret.chars().nth(0).unwrap() == '(' {
-            ret.replace("(", "").replace(")", "");
+            ret = ret.replace("(", "").replace(")", "");
         }
         ret
     }
@@ -1039,7 +1047,7 @@ impl Node for ModNode {
         );
         let mut ret = ops._mod(self.to_arc(), ctx);
         if strip_paren && ret.chars().nth(0).unwrap() == '(' {
-            ret.replace("(", "").replace(")", "");
+            ret = ret.replace("(", "").replace(")", "");
         }
         ret
     }
@@ -1076,6 +1084,7 @@ impl AndNode {
     }
 }
 
+#[allow(unused_variables)]
 impl Node for AndNode {
     fn min(&self) -> Option<isize> {
         self.nodes.iter().map(|n| n.min().unwrap()).min()
@@ -1116,7 +1125,7 @@ impl Node for AndNode {
     fn render(&self, ops: Arc<dyn NodeOp>, ctx: Option<&str>, strip_paren: bool) -> String {
         let mut ret = ops.and(self.to_arc(), ctx);
         if strip_paren && ret.chars().nth(0).unwrap() == '(' {
-            ret.replace("(", "").replace(")", "");
+            ret = ret.replace("(", "").replace(")", "");
         }
         ret
     }
@@ -1132,6 +1141,7 @@ impl Node for AndNode {
     }
 }
 
+#[allow(unused_variables)]
 pub trait NodeOp {
     fn variable(&self, s: ArcNode, ctx: Option<&str>) -> String {
         // Variable: lambda self,ops,ctx: f"{self.expr}[{self.min}-{self.max}]" if ctx == "DEBUG" else f"{self.expr}",
@@ -1210,6 +1220,7 @@ pub trait NodeOp {
 }
 
 pub struct CStyle;
+#[allow(dead_code)]
 impl CStyle {
     fn new() -> Arc<Self> {
         Arc::new(Self)
@@ -1222,6 +1233,7 @@ impl NodeOp for CStyle {
 }
 
 pub struct Python;
+#[allow(dead_code)]
 impl Python {
     fn new() -> Arc<Self> {
         Arc::new(Self)

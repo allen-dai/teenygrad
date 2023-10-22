@@ -20,8 +20,7 @@ impl<B: Backend> SafeTensor for Tensor<B> {
         safetensor_path: P,
     ) -> Result<(), SafeTensorError> {
         let buffer = {
-            use std::io::Read;
-            let mut f = std::fs::File::open(safetensor_path)?;
+            let f = std::fs::File::open(safetensor_path)?;
             unsafe { memmap2::MmapOptions::new().map(&f)? }
         };
         let tensors = SafeTensors::deserialize(&buffer)?;

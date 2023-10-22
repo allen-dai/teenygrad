@@ -1,5 +1,4 @@
 use crate::{dtype, ops::OpType, lazy::LazyBuffer};
-use num_traits::{Float, PrimInt};
 
 #[allow(non_camel_case_types)]
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

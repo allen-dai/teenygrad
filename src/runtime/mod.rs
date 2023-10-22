@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{backend::cpu::Cpu, dtype, prelude::Dtype};
+use crate::{backend::cpu::Cpu, dtype};
 
 pub mod opencl;
 

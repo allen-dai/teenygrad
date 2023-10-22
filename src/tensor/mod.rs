@@ -127,7 +127,7 @@ impl<B: Backend> Tensor<B> {
     pub fn randn<S: Into<Shape>>(shape: S) -> Self {
         let shape = shape.into();
         let mut ret = Self::rand(shape.clone());
-        let mut sec_ = Self::rand(shape.clone());
+        let sec_ = Self::rand(shape.clone());
         ret = ret * (core::f64::consts::PI * 2.0);
         ret = ret.cos() * ((1.0f32 - sec_).log() * -2.0f32).sqrt();
         ret
@@ -160,11 +160,11 @@ impl<B: Backend> Tensor<B> {
             * (6.0 / (shape.dims[0] + shape.dims[1..].iter().product::<usize>()) as f64).powf(0.5)
     }
 
-    pub fn kaiming_uniform<S: Into<Shape>>(shape: S) -> Self {
+    pub fn kaiming_uniform<S: Into<Shape>>(_shape: S) -> Self {
         todo!()
     }
 
-    pub fn kaiming_normal<S: Into<Shape>>(shape: S) -> Self {
+    pub fn kaiming_normal<S: Into<Shape>>(_shape: S) -> Self {
         todo!()
     }
 
@@ -410,7 +410,7 @@ impl<B: Backend> Tensor<B> {
         self._argmax(Some(axis), false)
     }
 
-    pub fn argmax_keepdim(&self, axis: isize, keepdim: bool) -> Self {
+    pub fn argmax_keepdim(&self, axis: isize, _keepdim: bool) -> Self {
         self._argmax(Some(axis), true)
     }
 
@@ -542,7 +542,7 @@ impl<B: Backend> Tensor<B> {
             .map(|sh| *sh)
             .collect();
 
-        let mut xup = if k_.dims.iter().zip(s_.dims.iter()).any(|(k, s)| k > s) || d_.dims.iter().any(|d| *d != 1) {
+        let xup = if k_.dims.iter().zip(s_.dims.iter()).any(|(k, s)| k > s) || d_.dims.iter().any(|d| *d != 1) {
             let o_: Vec<usize> = i_
                 .iter()
                 .zip(d_.dims.iter().zip(k_.dims.iter().zip(s_.dims.iter())))
@@ -673,7 +673,7 @@ impl<B: Backend> Tensor<B> {
             cin_
         );
         let padding = padding.into();
-        let mut padding_ = if padding.len() == 1 {
+        let padding_ = if padding.len() == 1 {
             vec![padding[0]; 2 * hw.len()]
         } else {
             padding
@@ -763,8 +763,8 @@ impl<B: Backend> Tensor<B> {
         );
         (*self.grad.lock().unwrap()) = Some(Self::ones([1]));
         let deepwalked = self.deepwalk().into_iter();
-        let deepwalked_len = deepwalked.len();
-        for (i, mut t0) in deepwalked.rev().enumerate() {
+        let _deepwalked_len = deepwalked.len();
+        for mut t0 in deepwalked.rev() {
             let t0g_clone = (*t0.grad.lock().unwrap())
                 .as_ref()
                 .expect("t0 should have a grad")
@@ -778,7 +778,7 @@ impl<B: Backend> Tensor<B> {
                     _ctx: None,
                     id: tensor_id(),
                 })],
-                Grad::Two(mut g1, mut g2) => {
+                Grad::Two(g1, g2) => {
                     let mut out = vec![];
                     out.push(if let Some(g) = g1.as_ref() {
                         // if g.to_vec().iter().any(|n| n.is_nan()) {
@@ -1082,7 +1082,7 @@ impl<B: Backend> Tensor<B> {
 fn sum_axis() {
     use crate::prelude::*;
     let n = 2 * 3;
-    let mut t = Tensor::<Cpu>::from_shape(
+    let t = Tensor::<Cpu>::from_shape(
         (1..n + 1)
             .map(|e| f32::from_usize(e).unwrap())
             .collect::<Vec<f32>>(),
@@ -1092,7 +1092,7 @@ fn sum_axis() {
     assert!(vec![6.0f32, 15.0f32] == y.to_vec());
 
     let n = 4 * 2 * 3 * 3;
-    let mut t = Tensor::<Cpu>::from_shape(
+    let t = Tensor::<Cpu>::from_shape(
         (1..n + 1)
             .map(|e| f32::from_usize(e).unwrap())
             .collect::<Vec<f32>>(),
@@ -1140,7 +1140,6 @@ fn sum_axis() {
 fn matmul() {
     let a = Tensor::<Cpu>::from_shape([1., 2., 3., 4., 5., 6.], [2, 3]);
     let b = Tensor::<Cpu>::from_shape([10., 11., 20., 21., 30., 31.], [3, 2]);
-    &a + 1.0;
     let y = a.matmul(&b);
     assert!(vec![140., 146., 320., 335.] == y.to_vec());
 
@@ -1163,7 +1162,7 @@ fn matmul() {
 #[test]
 fn pool() {
     let n = 9;
-    let mut a = Tensor::<Cpu>::from_shape(
+    let a = Tensor::<Cpu>::from_shape(
         (1..=n * n)
             .map(|e| f32::from_usize(e).unwrap())
             .collect::<Vec<f32>>(),
@@ -1206,13 +1205,13 @@ fn pool() {
 
 #[test]
 fn conv2d() {
-    let mut a = Tensor::<Cpu>::from_shape(
+    let a = Tensor::<Cpu>::from_shape(
         (1..=9 * 9)
             .map(|e| f32::from_usize(e).unwrap())
             .collect::<Vec<f32>>(),
         [1, 1, 9, 9],
     );
-    let mut k = Tensor::<Cpu>::from_shape(
+    let k = Tensor::<Cpu>::from_shape(
         (1..=3 * 3)
             .map(|e| f32::from_usize(e).unwrap())
             .collect::<Vec<f32>>(),
@@ -1230,19 +1229,19 @@ fn conv2d() {
 
     let (cin, cout, conv) = (3, 3, 3);
 
-    let mut a2 = Tensor::<Cpu>::from_shape(
+    let a2 = Tensor::<Cpu>::from_shape(
         (1..=cin * 6 * 6)
             .map(|e| f32::from_usize(e).unwrap())
             .collect::<Vec<f32>>(),
         [cin, 1, 6, 6],
     );
-    let mut k2 = Tensor::<Cpu>::from_shape(
+    let k2 = Tensor::<Cpu>::from_shape(
         (1..=cin * conv * conv)
             .map(|e| f32::from_usize(e).unwrap())
             .collect::<Vec<f32>>(),
         [cin, 1, conv, conv],
     );
-    let mut k3 = Tensor::<Cpu>::from_shape(
+    let k3 = Tensor::<Cpu>::from_shape(
         (1..=cout * cin * conv * conv)
             .map(|e| f32::from_usize(e).unwrap())
             .collect::<Vec<f32>>(),

@@ -207,7 +207,7 @@ impl CstyleLanguage {
         kernel: &[String],
         bufs: &[(LazyBuffer, dtype::DType)],
         local_size: &[usize],
-        prekernel: &[String],
+        _prekernel: &[String],
     ) -> String {
         let tmp = if bufs.iter().any(|(_, dt)| dt.shape.is_some()) {
             "const sampler_t smp = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP | CLK_FILTER_NEAREST;\n"
@@ -318,7 +318,7 @@ fn uops_to_cstyle(lang: CstyleLanguage, function_name: &str, uops: Vec<UOp>) -> 
     let mut prekernel: Vec<String> = vec![];
     let mut bufs = vec![];
     let mut depth: usize = 1;
-    let mut kk = |s: &str, kernel: &mut Vec<String>, depth: usize| {
+    let kk = |s: &str, kernel: &mut Vec<String>, depth: usize| {
         kernel.push("  ".repeat(depth) + s);
     };
     let mut c: HashMap<&str, usize> = HashMap::new();
@@ -342,7 +342,7 @@ fn uops_to_cstyle(lang: CstyleLanguage, function_name: &str, uops: Vec<UOp>) -> 
         }
     }
     for u in uops.iter() {
-        let (uop, dtype, vin, args, num) = (&u.uop, &u.dtype, &u.vin, u.args.clone(), u.num);
+        let (uop, dtype, vin, args, _) = (&u.uop, &u.dtype, &u.vin, u.args.clone(), u.num);
         match uop {
             UOps::LOOP => {
                 *r.get_mut(&u).unwrap() = ssa(u, "ridx", &mut c, &mut r);
@@ -370,6 +370,7 @@ fn uops_to_cstyle(lang: CstyleLanguage, function_name: &str, uops: Vec<UOp>) -> 
             UOps::ALU => {
                 assert!(dtype.is_some());
                 let dtype = dtype.as_ref().unwrap();
+                #[allow(unused_assignments)] // it is used: r.insert(u.clone(), val);
                 let mut val = String::new();
                 if matches!(vin[0].uop, UOps::ALU)
                     && vin[0].args == args
@@ -599,7 +600,6 @@ fn uops_to_cstyle(lang: CstyleLanguage, function_name: &str, uops: Vec<UOp>) -> 
                     ),
                 );
             }
-            t => unimplemented!("failed to render {t:?}"),
         }
     }
     lang.render_kernel(function_name, &kernel, &bufs, &local_size, &prekernel)

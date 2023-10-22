@@ -45,7 +45,6 @@ impl<B: Backend> LAMP<B> {
     ) -> Self {
         unsafe {
             let mut params = Vec::new();
-            let mut buffers = Vec::new();
             while !_params.is_empty() {
                 let t = _params.pop().unwrap();
                 // if (*t).require_grad {
@@ -69,7 +68,7 @@ impl<B: Backend> LAMP<B> {
                 .collect();
             Self {
                 params,
-                buffers,
+                buffers: vec![],
                 lr,
                 b1,
                 b2,
@@ -102,7 +101,7 @@ impl<B: Backend> Optimizer for LAMP<B> {
         self.t += 1.;
         unsafe {
             for (i, t) in self.params.iter_mut().enumerate() {
-                let mut t = &mut (**t);
+                let t = &mut (**t);
                 assert!(t.grad.lock().unwrap().is_some());
                 let g = (*t.grad.lock().unwrap()).clone();
                 let mut g = g.unwrap();

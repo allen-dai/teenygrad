@@ -1,14 +1,12 @@
 pub mod util;
 pub mod view;
 
-use std::{sync::{Arc, Mutex, MutexGuard}, collections::HashMap};
-
 pub use util::*;
 use view::View;
 
 use crate::shape::symbolic::{num, var};
 
-use super::symbolic::{ArcNode, Variable};
+use super::symbolic::ArcNode;
 
 #[derive(Clone, Debug)]
 pub struct ShapeTracker {
@@ -52,7 +50,7 @@ impl ShapeTracker {
     }
 
     pub fn real_offset(&self) -> isize {
-        let (real_offset, mask) = self.expr_node(Some(var("zero", 0, 0)));
+        let (real_offset, _) = self.expr_node(Some(var("zero", 0, 0)));
         assert!(real_offset.is_num());
         real_offset.num_val().unwrap()
     }
@@ -70,11 +68,11 @@ impl ShapeTracker {
             .map(|(i, sh)| var(&format!("idx{}", i), 0, sh - 1))
             .collect();
         let (idx, valid) = self.expr_idxs(Some(idxs.clone()));
-        for this_dim in (if idx.is_sum() {
+        for this_dim in if idx.is_sum() {
             idx.nodes()
         } else {
             vec![idx.clone()]
-        }) {
+        } {
             // println!("\n----\nidxs: {:?}\n\nidx: {}", idxs.iter().map(|n| n.key()).collect::<Vec<String>>(), this_dim.a().unwrap());
             if this_dim.is_mul()
                 && this_dim.a().unwrap().is_var()
@@ -157,7 +155,7 @@ impl ShapeTracker {
         )
     }
 
-    pub fn expr_node_str(&self, idx: &str) -> (ArcNode, ArcNode) {
+    pub fn expr_node_str(&self, _idx: &str) -> (ArcNode, ArcNode) {
         let idx = var("idx", 0, self.shape().iter().product());
         self._expr_idx(
             self.views[self.views.len() - 1].expr_node(Some(idx.clone())),
@@ -225,16 +223,4 @@ impl ShapeTracker {
         views.push(p.stride(mul));
         ShapeTracker { views }
     }
-}
-
-#[test]
-fn st_test() {
-    let mut st = ShapeTracker::new(&[3, 3, 3], None);
-    st.reshape(&[1, 3, 3, 3])
-        .expand(&[3, 3, 3, 3])
-        .reshape(&[9, 9]);
-    println!("{:?}", st.views);
-    println!("{:?} {:?}", st.shape(), st.strides());
-    // st.permute(&[-2, 0, -1]);
-    // println!("{:?}", st.strides());
 }

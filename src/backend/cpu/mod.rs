@@ -520,8 +520,7 @@ impl<T: Dtype> Backend for Cpu<T> {
             .iter()
             .rev()
             .zip(shape.dims.iter().rev())
-            .enumerate()
-            .for_each(|(i, (l, r))| {
+            .for_each(|(l, r)| {
                 if l != r && *l != 1 {
                     panic!(
                         "Can not expand to shape. From: {} To: {}",

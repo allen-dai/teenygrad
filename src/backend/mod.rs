@@ -1,7 +1,5 @@
 pub mod cpu;
 
-use rand_distr::Distribution;
-
 use crate::tensor::{dtype::Dtype, shape::Shape};
 
 pub trait Backend: 'static + core::fmt::Debug + Clone + Send + Sync {

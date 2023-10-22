@@ -182,10 +182,10 @@ impl<B: Backend> Function<B> for Contiguous<B> {
     fn forward(
         &mut self,
         x: &B,
-        y: Option<&B>,
-        z: Option<&B>,
-        shape: Option<Shape>,
-        const_: Option<B::Dtype>,
+        _: Option<&B>,
+        _: Option<&B>,
+        _: Option<Shape>,
+        _: Option<B::Dtype>,
     ) -> B {
         x.contiguous()
     }
@@ -222,10 +222,10 @@ impl<B: Backend> Function<B> for Sin<B> {
     fn forward(
         &mut self,
         x: &B,
-        y: Option<&B>,
-        z: Option<&B>,
-        shape: Option<Shape>,
-        const_: Option<B::Dtype>,
+        _: Option<&B>,
+        _: Option<&B>,
+        _: Option<Shape>,
+        _: Option<B::Dtype>,
     ) -> B {
         self.x = Some(x.clone());
         x.sin()
@@ -269,10 +269,10 @@ impl<B: Backend> Function<B> for Log<B> {
     fn forward(
         &mut self,
         x: &B,
-        y: Option<&B>,
-        z: Option<&B>,
-        shape: Option<Shape>,
-        const_: Option<B::Dtype>,
+        _: Option<&B>,
+        _: Option<&B>,
+        _: Option<Shape>,
+        _: Option<B::Dtype>,
     ) -> B {
         self.x = Some(x.clone());
         x.log2()
@@ -311,10 +311,10 @@ impl<B: Backend> Function<B> for Exp<B> {
     fn forward(
         &mut self,
         x: &B,
-        y: Option<&B>,
-        z: Option<&B>,
-        shape: Option<Shape>,
-        const_: Option<B::Dtype>,
+        _: Option<&B>,
+        _: Option<&B>,
+        _: Option<Shape>,
+        _: Option<B::Dtype>,
     ) -> B {
         let ret = x
             .mul(&x.const_like(df32!(1f32 / 2.0f32.log(core::f32::consts::E))))
@@ -355,10 +355,10 @@ impl<B: Backend> Function<B> for Sqrt<B> {
     fn forward(
         &mut self,
         x: &B,
-        y: Option<&B>,
-        z: Option<&B>,
-        shape: Option<Shape>,
-        const_: Option<B::Dtype>,
+        _: Option<&B>,
+        _: Option<&B>,
+        _: Option<Shape>,
+        _: Option<B::Dtype>,
     ) -> B {
         self.ret = Some(x.sqrt());
         self.ret.as_ref().unwrap().clone()
@@ -397,12 +397,12 @@ impl<B: Backend> Function<B> for Sum<B> {
     fn forward(
         &mut self,
         x: &B,
-        y: Option<&B>,
-        z: Option<&B>,
+        _: Option<&B>,
+        _: Option<&B>,
         shape: Option<Shape>,
-        const_: Option<B::Dtype>,
+        _: Option<B::Dtype>,
     ) -> B {
-        let mut shape = shape.unwrap();
+        let shape = shape.unwrap();
         self.input_shape = Some(x.shape());
         if shape.len() == 1 {
             return x.sum(None, false);
@@ -468,12 +468,12 @@ impl<B: Backend> Function<B> for Max<B> {
     fn forward(
         &mut self,
         x: &B,
-        y: Option<&B>,
-        z: Option<&B>,
+        _: Option<&B>,
+        _: Option<&B>,
         shape: Option<Shape>,
-        const_: Option<B::Dtype>,
+        _: Option<B::Dtype>,
     ) -> B {
-        let mut shape = shape.unwrap();
+        let shape = shape.unwrap();
         if shape.len() == 1 {
             return x.sum(None, false);
         }
@@ -491,7 +491,7 @@ impl<B: Backend> Function<B> for Max<B> {
         self.ret.as_ref().unwrap().clone()
     }
 
-    fn backward(&mut self, mut grad: B) -> Grad<B> {
+    fn backward(&mut self, grad: B) -> Grad<B> {
         let x_ref = self.x.as_ref().unwrap();
         let ret_ref = self.ret.as_ref().unwrap();
         let max_is_1s = x_ref
@@ -541,14 +541,14 @@ impl<B: Backend> Function<B> for Less<B> {
         &mut self,
         x: &B,
         y: Option<&B>,
-        z: Option<&B>,
-        shape: Option<Shape>,
-        const_: Option<B::Dtype>,
+        _: Option<&B>,
+        _: Option<Shape>,
+        _: Option<B::Dtype>,
     ) -> B {
         x.cmplt(&y.expect("Less fwd op expects rhs"))
     }
 
-    fn backward(&mut self, grad: B) -> Grad<B> {
+    fn backward(&mut self, _grad: B) -> Grad<B> {
         unreachable!("Less op can not do backward pass")
     }
 
@@ -585,9 +585,9 @@ impl<B: Backend> Function<B> for Add<B> {
         &mut self,
         x: &B,
         y: Option<&B>,
-        z: Option<&B>,
-        shape: Option<Shape>,
-        const_: Option<B::Dtype>,
+        _: Option<&B>,
+        _: Option<Shape>,
+        _: Option<B::Dtype>,
     ) -> B {
         x.add(&y.expect("Add fwd op expects rhs"))
     }
@@ -639,9 +639,9 @@ impl<B: Backend> Function<B> for Sub<B> {
         &mut self,
         x: &B,
         y: Option<&B>,
-        z: Option<&B>,
-        shape: Option<Shape>,
-        const_: Option<B::Dtype>,
+        _: Option<&B>,
+        _: Option<Shape>,
+        _: Option<B::Dtype>,
     ) -> B {
         x.sub(&y.expect("Sub fwd op expects rhs"))
     }
@@ -693,9 +693,9 @@ impl<B: Backend> Function<B> for Mul<B> {
         &mut self,
         x: &B,
         y: Option<&B>,
-        z: Option<&B>,
-        shape: Option<Shape>,
-        const_: Option<B::Dtype>,
+        _: Option<&B>,
+        _: Option<Shape>,
+        _: Option<B::Dtype>,
     ) -> B {
         self.x = Some(x.clone());
         self.y = Some(y.expect("Mul fwd op expects rhs").clone());
@@ -749,9 +749,9 @@ impl<B: Backend> Function<B> for Div<B> {
         &mut self,
         x: &B,
         y: Option<&B>,
-        z: Option<&B>,
-        shape: Option<Shape>,
-        const_: Option<B::Dtype>,
+        _: Option<&B>,
+        _: Option<Shape>,
+        _: Option<B::Dtype>,
     ) -> B {
         self.x = Some(x.clone());
         self.y = Some(y.expect("Mul fwd op expects rhs").clone());
@@ -806,10 +806,10 @@ impl<B: Backend> Function<B> for Sigmoid<B> {
     fn forward(
         &mut self,
         x: &B,
-        y: Option<&B>,
-        z: Option<&B>,
-        shape: Option<Shape>,
-        const_: Option<B::Dtype>,
+        _: Option<&B>,
+        _: Option<&B>,
+        _: Option<Shape>,
+        _: Option<B::Dtype>,
     ) -> B {
         self.ret = Some(
             x.const_like(df32!(1.0)).div(
@@ -863,10 +863,10 @@ impl<B: Backend> Function<B> for Relu<B> {
     fn forward(
         &mut self,
         x: &B,
-        y: Option<&B>,
-        z: Option<&B>,
-        shape: Option<Shape>,
-        const_: Option<B::Dtype>,
+        _: Option<&B>,
+        _: Option<&B>,
+        _: Option<Shape>,
+        _: Option<B::Dtype>,
     ) -> B {
         self.ret = Some(x.bmax(&x.const_like(df32!(0.0))));
         self.ret.as_ref().unwrap().clone()
@@ -915,8 +915,8 @@ impl<B: Backend> Function<B> for Where<B> {
         x: &B,
         y: Option<&B>,
         z: Option<&B>,
-        shape: Option<Shape>,
-        const_: Option<B::Dtype>,
+        _: Option<Shape>,
+        _: Option<B::Dtype>,
     ) -> B {
         self.x = Some(x.clone());
         x._where(
@@ -972,10 +972,10 @@ impl<B: Backend> Function<B> for Expand<B> {
     fn forward(
         &mut self,
         x: &B,
-        y: Option<&B>,
-        z: Option<&B>,
+        _: Option<&B>,
+        _: Option<&B>,
         shape: Option<Shape>,
-        const_: Option<B::Dtype>,
+        _: Option<B::Dtype>,
     ) -> B {
         self.input_shape = Some(x.shape());
         x.expand(shape.expect("Expand mlops expect a shape"))
@@ -1025,10 +1025,10 @@ impl<B: Backend> Function<B> for Reshape<B> {
     fn forward(
         &mut self,
         x: &B,
-        y: Option<&B>,
-        z: Option<&B>,
+        _: Option<&B>,
+        _: Option<&B>,
         shape: Option<Shape>,
-        const_: Option<B::Dtype>,
+        _: Option<B::Dtype>,
     ) -> B {
         self.input_shape = Some(x.shape());
         x.reshape(shape.expect("Reshape mlops expect a shape"))
@@ -1075,10 +1075,10 @@ impl<B: Backend> Function<B> for Permute<B> {
     fn forward(
         &mut self,
         x: &B,
-        y: Option<&B>,
-        z: Option<&B>,
+        _: Option<&B>,
+        _: Option<&B>,
         mut shape: Option<Shape>,
-        const_: Option<B::Dtype>,
+        _: Option<B::Dtype>,
     ) -> B {
         let order = shape.take().expect("Permute mlops expect a permute order");
         self.permute_order = Some(order.clone());
@@ -1127,8 +1127,8 @@ impl<B: Backend> Function<B> for Pad<B> {
     fn forward(
         &mut self,
         x: &B,
-        y: Option<&B>,
-        z: Option<&B>,
+        _: Option<&B>,
+        _: Option<&B>,
         shape: Option<Shape>,
         const_: Option<B::Dtype>,
     ) -> B {
@@ -1194,10 +1194,10 @@ impl<B: Backend> Function<B> for Shrink<B> {
     fn forward(
         &mut self,
         x: &B,
-        y: Option<&B>,
-        z: Option<&B>,
+        _: Option<&B>,
+        _: Option<&B>,
         shape: Option<Shape>,
-        const_: Option<B::Dtype>,
+        _: Option<B::Dtype>,
     ) -> B {
         let flatten_p = shape.unwrap();
         let mut narg = Vec::new();
@@ -1245,9 +1245,10 @@ impl<B: Backend> Function<B> for Shrink<B> {
 
 #[test]
 fn mlop_sin() {
-    let mut t = Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    let mut t =
+        Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
     t.require_grad = true;
-    let mut x = t.sin();
+    let x = t.sin();
     approx_eq!(
         x,
         [
@@ -1281,9 +1282,10 @@ fn mlop_sin() {
 
 #[test]
 fn mlop_relu() {
-    let mut t = Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    let mut t =
+        Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
     t.require_grad = true;
-    let mut x = t.relu();
+    let x = t.relu();
 
     approx_eq!(x, [0., 2., 0., 4., 0., 6., 0., 8., 0.]);
     x.sum_all().backward();
@@ -1292,9 +1294,10 @@ fn mlop_relu() {
         [0., 1., 0., 1., 0., 1., 0., 1., 0.]
     );
 
-    let mut t = Tensor::<Cpu>::from_shape([1.0, -2.0, 3.0, -4.0, 5.0, -6.0, 7.0, -8.0, 9.0], [3, 3]);
+    let mut t =
+        Tensor::<Cpu>::from_shape([1.0, -2.0, 3.0, -4.0, 5.0, -6.0, 7.0, -8.0, 9.0], [3, 3]);
     t.require_grad = true;
-    let mut x = t.relu();
+    let x = t.relu();
     approx_eq!(x, [1., 0., 3., 0., 5., 0., 7., 0., 9.]);
     x.sum_all().backward();
     approx_eq!(
@@ -1307,7 +1310,7 @@ fn mlop_relu() {
 fn mlop_log() {
     let mut t = Tensor::<Cpu>::from_shape([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], [3, 3]);
     t.require_grad = true;
-    let mut x = t.log();
+    let x = t.log();
     approx_eq!(
         x,
         [
@@ -1324,9 +1327,10 @@ fn mlop_log() {
 
 #[test]
 fn mlop_exp() {
-    let mut t = Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    let mut t =
+        Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
     t.require_grad = true;
-    let mut x = t.exp();
+    let x = t.exp();
 
     approx_eq!(
         x,
@@ -1363,7 +1367,7 @@ fn mlop_exp() {
 fn mlop_sqrt() {
     let mut t = Tensor::<Cpu>::from_shape([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], [3, 3]);
     t.require_grad = true;
-    let mut x = t.sqrt();
+    let x = t.sqrt();
     approx_eq!(
         x,
         [1., 1.4142135, 1.7320508, 2., 2.236068, 2.4494898, 2.6457512, 2.828427, 3.]
@@ -1380,9 +1384,10 @@ fn mlop_sqrt() {
 
 #[test]
 fn mlop_sigmoid() {
-    let mut t = Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    let mut t =
+        Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
     t.require_grad = true;
-    let mut x = t.sigmoid();
+    let x = t.sigmoid();
     approx_eq!(
         x,
         [
@@ -1443,9 +1448,10 @@ fn mlop_sum() {
 
 #[test]
 fn mlop_max() {
-    let mut t = Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    let mut t =
+        Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
     t.require_grad = true;
-    let mut x = t.max_all();
+    let x = t.max_all();
     approx_eq!(x, [8.0]);
     x.sum_all().backward();
     approx_eq!(
@@ -1453,9 +1459,10 @@ fn mlop_max() {
         [0., 0., 0., 0., 0., 0., 0., 1., 0.]
     );
 
-    let mut t = Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    let mut t =
+        Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
     t.require_grad = true;
-    let mut x = t.max(0);
+    let x = t.max(0);
     approx_eq!(x, [4.0, 8.0, 6.0]);
     x.sum_all().backward();
     approx_eq!(
@@ -1463,9 +1470,10 @@ fn mlop_max() {
         [0., 0., 0., 1., 0., 1., 0., 1., 0.]
     );
 
-    let mut t = Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    let mut t =
+        Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
     t.require_grad = true;
-    let mut x = t.max(1);
+    let x = t.max(1);
     approx_eq!(x, [2.0, 6.0, 8.0]);
     x.sum_all().backward();
     approx_eq!(
@@ -1473,9 +1481,10 @@ fn mlop_max() {
         [0., 1., 0., 0., 0., 1., 0., 1., 0.]
     );
 
-    let mut t = Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    let mut t =
+        Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
     t.require_grad = true;
-    let mut x = t.max(2);
+    let x = t.max(2);
     approx_eq!(x, [-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0]);
     x.sum_all().backward();
     approx_eq!(
@@ -1486,20 +1495,21 @@ fn mlop_max() {
 
 #[test]
 fn mlop_less() {
-    let mut t = Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
-    let mut b = Tensor::<Cpu>::from_shape([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], [3, 3]);
-    let mut x = t._lt(&b);
+    let t = Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    let b = Tensor::<Cpu>::from_shape([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], [3, 3]);
+    let x = t._lt(&b);
     approx_eq!(x, [1., 0., 1., 0., 1., 0., 1., 0., 1.]);
     // less has no bwd pass
 }
 
 #[test]
 fn mlop_add() {
-    let mut t = Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    let mut t =
+        Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
     let mut b = Tensor::<Cpu>::from_shape([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], [3, 3]);
     t.require_grad = true;
     b.require_grad = true;
-    let mut x = (&t + &b);
+    let x = &t + &b;
     approx_eq!(x, [0., 4., 0., 8., 0., 12., 0., 16., 0.]);
     x.sum_all().backward();
     approx_eq!(
@@ -1510,11 +1520,12 @@ fn mlop_add() {
 
 #[test]
 fn mlop_sub() {
-    let mut t = Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
+    let mut t =
+        Tensor::<Cpu>::from_shape([-1.0, 2.0, -3.0, 4.0, -5.0, 6.0, -7.0, 8.0, -9.0], [3, 3]);
     let mut b = Tensor::<Cpu>::from_shape([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], [3, 3]);
     t.require_grad = true;
     b.require_grad = true;
-    let mut x = (&t - &b);
+    let x = &t - &b;
     approx_eq!(x, [-2., 0., -6., 0., -10., 0., -14., 0., -18.]);
     x.sum_all().backward();
     approx_eq!(

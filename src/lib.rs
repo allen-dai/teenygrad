@@ -1,4 +1,4 @@
-#![allow(dead_code, unused)]
+#![allow(dead_code)]
 
 use std::sync::{Arc, Mutex};
 
@@ -39,6 +39,7 @@ pub mod prelude {
     pub use rand_distr::Standard;
     pub use crate::util::safetensor::SafeTensor;
     pub(crate) use crate::tensor::mlops::*;
+    #[allow(unused)]
     pub(crate) use crate::approx_eq;
     pub use crate::view;
     pub use crate::DEVICE;

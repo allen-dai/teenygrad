@@ -1,23 +1,11 @@
-use opencl3::command_queue::{
-    create_command_queue_with_properties, CommandQueue, CL_QUEUE_PROFILING_ENABLE,
-};
 use opencl3::context::Context;
 use opencl3::device::{get_all_devices, Device, CL_DEVICE_TYPE_GPU};
-use opencl3::kernel::{ExecuteKernel, Kernel};
-use opencl3::memory::{Buffer, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE, CL_MEM_WRITE_ONLY, CL_HALF_FLOAT};
-use opencl3::program::Program;
-use opencl3::types::{cl_double, cl_event, cl_float, CL_BLOCKING, CL_NON_BLOCKING};
-use opencl3::Result;
-use std::ffi::c_void;
-use std::marker::PhantomData;
+use opencl3::memory::{Buffer, CL_MEM_READ_WRITE};
 use std::ptr;
-use std::sync::Arc;
 
-use crate::dtype::{DType, float32};
-use crate::ops::Op;
 use crate::renderer::cstyle::CstyleLanguage;
 
-use super::{RawBuffer, RawBuf};
+use super::RawBuf;
 
 fn create_context() -> Context {
     let device_id = *get_all_devices(CL_DEVICE_TYPE_GPU)
@@ -72,8 +60,10 @@ pub struct CLBuffer<T> {
 impl<T> CLBuffer<T> {
     fn new(size: usize) -> Self {
         let context = create_context();
-        let buf =
-            unsafe { Buffer::<T>::create(&context, CL_MEM_READ_WRITE, size, ptr::null_mut()).expect("unable to alloc buffer") };
+        let buf = unsafe {
+            Buffer::<T>::create(&context, CL_MEM_READ_WRITE, size, ptr::null_mut())
+                .expect("unable to alloc buffer")
+        };
         Self { buf }
     }
 }
@@ -112,9 +102,4 @@ impl std::ops::Deref for CLRenderer {
 #[derive(Debug, Clone)]
 pub struct CLDevice {
     renderer: CLRenderer,
-}
-
-#[test]
-fn rawbuf() {
-    let rb = RawBuffer::new(10, float32, CLBuffer::<f32>::new(32), "gpu");
 }

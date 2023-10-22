@@ -1,23 +1,15 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+#![allow(unused)]
+use std::collections::{HashMap, HashSet};
 
-use crate::{
-    ops::{ScheduleItem, Unary},
-    prelude::*,
-};
+use crate::prelude::*;
 
 use crate::{
     backend::Backend,
     codegen::linearizer::Args,
     dtype::{float32, DType},
-    ops::{Binary, LazyOp, LazyOpSrc, LazyOpsDefaultImpl, Load, Movement, Op, OpType},
+    ops::{Binary, LazyOp, LazyOpSrc, LazyOpsDefaultImpl, Load, Movement, OpType},
     runtime::RawBuffer,
-    shape::{
-        shapetracker::ShapeTracker,
-        symbolic::{gcd, Variable},
-    },
+    shape::{shapetracker::ShapeTracker, symbolic::gcd},
 };
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug, Hash)]
@@ -71,10 +63,10 @@ impl LazyBuffer {
         device: &str,
         st: ShapeTracker,
         optype: OpType,
-        mut op: LazyOp,
+        op: LazyOp,
         dtype: DType,
         src: Option<RawBuffer>,
-        mut base: Option<Box<LazyBuffer>>,
+        base: Option<Box<LazyBuffer>>,
     ) -> Self {
         let mut ret = Self {
             device: device.into(),
@@ -107,7 +99,7 @@ impl LazyBuffer {
     pub fn map_buffers(&self, real_srcs: &HashMap<&LazyBuffer, Option<LazyOpSrc>>) -> Self {
         if let Some(s) = real_srcs.get(self) {
             if let Some(ss) = s {
-                return ss.lb().clone()
+                return ss.lb().clone();
             }
         }
         self.clone()
@@ -264,7 +256,7 @@ impl LazyBuffer {
     }
 
     pub fn e(&self, optype: OpType, src: Self, arg: Option<Vec<Args>>) -> Self {
-        let srcs = vec![self.clone(),src];
+        let srcs = vec![self.clone(), src];
         let out_device = srcs[0].device.clone();
         let out_shape = srcs[0].shape.clone();
         let out_dtype = if srcs[0].dtype.itemsize > srcs[1].dtype.itemsize {
@@ -810,7 +802,7 @@ impl Backend for LazyBuffer {
         for a in arg {
             aarg.push(a.0 as isize);
             aarg.push(a.1 as isize);
-        };
+        }
         self._shrink(&aarg)
     }
 
@@ -820,7 +812,7 @@ impl Backend for LazyBuffer {
         for a in arg {
             aarg.push(a.0 as isize);
             aarg.push(a.1 as isize);
-        };
+        }
         self._pad(&aarg)
     }
 
@@ -852,14 +844,4 @@ fn shape_to_ivec(sh: &Shape) -> Vec<isize> {
 
 fn ivec_to_shape(sh: &Shape) -> Vec<isize> {
     sh.dims.iter().map(|i| *i as isize).collect::<Vec<isize>>()
-}
-
-#[test]
-fn lazybuff_load() {
-    let t = Tensor::<LazyBuffer>::rand([3, 3]).reshape([1, 3, 3]);
-    let y = Tensor::<LazyBuffer>::rand([3, 3]).reshape([1, 3, 3]);
-    let z = t * y;
-    let x = z.inner.realize();
-    println!("{:?}", x.is_realized());
-    //println!("{:?}", t);
 }

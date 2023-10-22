@@ -1,7 +1,7 @@
 use crate::{
     dtype,
     lazy::LazyBuffer,
-    ops::{LazyOp, Movement, OpType},
+    ops::{LazyOp, OpType},
 };
 
 pub struct LocalBuffer {
@@ -34,6 +34,7 @@ pub struct Kenrel {
     reduceop: Option<LazyOp>
 }
 
+#[allow(unused_variables)]
 impl Kenrel {
     pub fn new(ast: &LazyOp, output_buffer: &LazyBuffer, opts: LinearizerOptions) -> Self {
         // let ast = if ast.optype == Movement::Reshape {

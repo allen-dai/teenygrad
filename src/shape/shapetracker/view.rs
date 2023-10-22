@@ -1,5 +1,5 @@
-use crate::shape::symbolic::{ands, num, sum, var, ArcNode, Node};
 use super::util::*;
+use crate::shape::symbolic::{ands, num, sum, var, ArcNode};
 
 #[macro_export]
 macro_rules! view {
@@ -10,10 +10,20 @@ macro_rules! view {
         View::new(&$shape.to_vec(), Some($strides.to_vec()), None, None)
     };
     ($shape: expr, $strides: expr, $offset: expr) => {
-        View::new(&$shape.to_vec(), Some($strides.to_vec()), Some($offset), None)
+        View::new(
+            &$shape.to_vec(),
+            Some($strides.to_vec()),
+            Some($offset),
+            None,
+        )
     };
     ($shape: expr, $strides: expr, $offset: expr, $mask: expr) => {
-        View::new(&$shape.to_vec(), Some($strides.to_vec()), Some($offset), Some($mask.to_vec()))
+        View::new(
+            &$shape.to_vec(),
+            Some($strides.to_vec()),
+            Some($offset),
+            Some($mask.to_vec()),
+        )
     };
 }
 
@@ -40,12 +50,12 @@ impl View {
             strides_for_shape(&shape)
         };
         let offset = if let Some(val) = offset { val } else { 0 };
-        let contiguous = (offset == 0
+        let contiguous = offset == 0
             && mask.is_none()
             && strides
                 .iter()
                 .zip(strides_for_shape(shape).iter())
-                .all(|(s1, s2)| s1 == s2));
+                .all(|(s1, s2)| s1 == s2);
         Self {
             shape_strides: to_shape_strides(&shape, &strides),
             shape: shape.to_vec(),
@@ -62,7 +72,7 @@ impl View {
             let mut acc = 1;
             for (&ns, &(x, y)) in self.shape.iter().zip(mask).rev() {
                 if x != 0 || y != ns {
-                    let base = ((&idx / acc) % ns);
+                    let base = (&idx / acc) % ns;
                     expr.extend([base.ge(num(x)), base.lt(num(y))]);
                 }
                 acc *= ns;
@@ -75,7 +85,7 @@ impl View {
         let idx = if let Some(i) = idx {
             i
         } else {
-            var("idx", 0, self.shape.iter().product::<isize>()-1)
+            var("idx", 0, self.shape.iter().product::<isize>() - 1)
         };
         let mut ret = vec![];
         if self.offset != 0 {
@@ -85,8 +95,6 @@ impl View {
         for &(d, s) in to_shape_strides(&self.shape, &self.strides).iter().rev() {
             ret.push(((&idx / acc) % d) * s);
             acc *= d;
-        }
-        for x in ret.iter() {
         }
         sum(&ret)
     }
@@ -130,13 +138,12 @@ impl View {
                 );
             }
         }
-        let view = View::new(
+        View::new(
             &arg.iter().map(|(x, y)| y - x).collect::<Vec<isize>>(),
             Some(self.strides.clone()),
-            None,
+            Some(self.offset + offset),
             mask,
-        );
-        view
+        )
     }
 
     pub fn pad(&self, arg: &[(isize, isize)]) -> Self {
@@ -245,16 +252,18 @@ impl View {
                         .map(|(_, &mm)| mm)
                         .rev()
                         .collect();
-                    let new_mask_tuple: Vec<(isize, isize)> = new_shape
-                        .iter()
-                        .map(|&x| {
-                            if x == 1 {
-                                (0, 1)
-                            } else {
-                                new_mask.pop().unwrap()
-                            }
-                        })
-                        .collect();
+                    new_mask_tuple = Some(
+                        new_shape
+                            .iter()
+                            .map(|&x| {
+                                if x == 1 {
+                                    (0, 1)
+                                } else {
+                                    new_mask.pop().unwrap()
+                                }
+                            })
+                            .collect::<Vec<(isize, isize)>>(),
+                    );
                 }
             }
             return Some(View::new(
@@ -313,7 +322,8 @@ impl View {
             .shape
             .iter()
             .zip(self.strides.iter().zip(mul.iter()))
-            .map(|(&s, (&z, &m))| (s - 1) * z)
+            .filter(|(_, (_, &m))| m < 0)
+            .map(|(&s, (&z, _))| (s - 1) * z)
             .sum();
         //  tuple([(((mx if m > 0 else s-my)+(abs(m)-1))//abs(m), ((my if m > 0 else s-mx)+(abs(m)-1))//abs(m)) for (mx,my),s,m in zip(self.views[-1].mask, self.views[-1].shape, mul)]) if self.views[-1].mask is not None else None
         let mask = if let Some(m) = &self.mask {

@@ -113,7 +113,7 @@ pub fn _reshape(view: &View, new_shape: &[isize]) -> (View, bool) {
                     .map(|(_, &mm)| mm)
                     .rev()
                     .collect();
-                let new_mask_tuple: Vec<(isize, isize)> = new_shape
+                new_mask_tuple = Some(new_shape
                     .iter()
                     .map(|&x| {
                         if x == 1 {
@@ -122,7 +122,7 @@ pub fn _reshape(view: &View, new_shape: &[isize]) -> (View, bool) {
                             new_mask.pop().unwrap()
                         }
                     })
-                    .collect();
+                    .collect::<_>());
             }
         };
         return (
@@ -135,7 +135,7 @@ pub fn _reshape(view: &View, new_shape: &[isize]) -> (View, bool) {
             false,
         );
     }
-    let mut new_view = View::new(new_shape, None, None, None);
+    let new_view = View::new(new_shape, None, None, None);
     if view.contiguous {
         return (new_view, false);
     }

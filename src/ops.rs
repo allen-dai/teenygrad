@@ -7,6 +7,7 @@ use crate::{
     shape::{shapetracker::ShapeTracker, symbolic::Variable}, dtype::DType,
 };
 
+#[allow(unused_variables)]
 pub trait Op: 'static + core::fmt::Debug + Send + Sync {
     // Unary
     fn neg(&self, x: &str) -> String {
@@ -250,7 +251,7 @@ impl LazyOpSrc {
     pub fn lo(&self) -> &LazyOp {
         match self {
             LazyOpSrc::LazyOp(lo) => lo,
-            LazyOpSrc::LazyBuffer(lb) => panic!("Lazyop cant turn into lazyop"),
+            LazyOpSrc::LazyBuffer(_) => panic!("Lazyop cant turn into lazyop"),
         }
     }
 
@@ -264,7 +265,7 @@ impl LazyOpSrc {
     pub fn lo_mut(&mut self) -> &mut LazyOp {
         match self {
             LazyOpSrc::LazyOp(lo) => lo,
-            LazyOpSrc::LazyBuffer(lb) => panic!("Lazyop cant turn into lazyop"),
+            LazyOpSrc::LazyBuffer(_) => panic!("Lazyop cant turn into lazyop"),
         }
     }
 }

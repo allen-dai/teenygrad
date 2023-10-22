@@ -1,7 +1,4 @@
-use crate::shape::symbolic::CStyle;
-
-use super::{num, sum, DivNode, MulNode, Node, ArcNode};
-use std::sync::Arc;
+use super::{num, Node, ArcNode};
 
 macro_rules! impl_core {
     ($op: tt, $op_fn: tt, $fn: ident) => {
