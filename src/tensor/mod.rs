@@ -650,7 +650,7 @@ impl<B: Backend> Tensor<B> {
 
     pub fn _conv2d<V: Into<Vec<usize>>>(
         &self,
-        weigth: &Self,
+        weight: &Self,
         bias: Option<&Self>,
         groups: usize,
         stride: usize,
@@ -660,15 +660,15 @@ impl<B: Backend> Tensor<B> {
         let [bs, cin_] = self.shape().dims[..2] else {
             panic!()
         };
-        let [cout, cin] = weigth.shape().dims[..2] else {
+        let [cout, cin] = weight.shape().dims[..2] else {
             panic!()
         };
-        let hw = weigth.shape().dims[2..].to_vec();
+        let hw = weight.shape().dims[2..].to_vec();
         assert!(
-            groups * cin == cin_ && self.shape().len() == weigth.shape().len(),
+            groups * cin == cin_ && self.shape().len() == weight.shape().len(),
             "Input Tensor shape {} does not match the shape of the weights {}. ({} vs. {})",
             self.shape(),
-            weigth.shape(),
+            weight.shape(),
             groups * cin,
             cin_
         );
@@ -708,7 +708,7 @@ impl<B: Backend> Tensor<B> {
         w_rsh_tmp.extend(vec![1; oyx.len()]);
         w_rsh_tmp.push(cin);
         w_rsh_tmp.extend(hw.iter());
-        let mut ret = x * weigth.reshape(w_rsh_tmp);
+        let mut ret = x * weight.reshape(w_rsh_tmp);
         for i in 0..oyx.len() + 1 {
             let reduce_i = -1 - (i as isize);
             ret = ret.sum_keepdim(reduce_i);
@@ -961,8 +961,16 @@ impl<B: Backend> Tensor<B> {
     }
 
     pub fn bceloss(&self, y: &Self) -> Self {
-        (y * &(self + 1e-7f32).log() + (1.0f32 - y) * (1f32 + 1e-7f32 - self).log()).sum_all()
-            / self.shape()[0]
+        let epsilon = 1e-9f32;
+        let num_example = if self.shape().dims.len() == 0 {
+            self.shape().dims[0] as f32
+        } else {
+            1 as f32
+        };
+        let entrophy =
+            (self * &(y * epsilon).log() + ((1f32 - self) * (1f32 - y + epsilon).log())).sum_all();
+
+        (-1f32 / num_example) * entrophy
     }
 
     pub fn clip(&self, min: f64, max: f64) -> Self {
@@ -1385,6 +1393,6 @@ fn max_test() {
 
 #[test]
 fn test_randn() {
-    let t = Tensor::<Cpu>::randn([3,3]);
+    let t = Tensor::<Cpu>::randn([3, 3]);
     println!("{}", t);
 }
