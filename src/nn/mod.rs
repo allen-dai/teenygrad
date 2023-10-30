@@ -28,7 +28,7 @@ impl<B: Backend> Conv2d<B> {
         bias: bool,
     ) -> Self {
         let weights = Tensor::uniform([out_channel, in_channel / groups, kernel_size, kernel_size]);
-        let bound = 1.0 / f64::sqrt(weights.shape().dims[1..].iter().product::<usize>() as f64);
+        let bound = 1.0 / f32::sqrt(weights.shape().dims[1..].iter().product::<usize>() as f32);
         let bias = if bias {
             Some(Tensor::uniform_range([out_channel], -bound, bound))
         } else {

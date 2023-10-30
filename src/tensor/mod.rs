@@ -128,12 +128,12 @@ impl<B: Backend> Tensor<B> {
         let shape = shape.into();
         let mut ret = Self::rand(shape.clone());
         let sec_ = Self::rand(shape.clone());
-        ret = ret * (core::f64::consts::PI * 2.0);
+        ret = ret * (core::f32::consts::PI * 2.0);
         ret = ret.cos() * ((1.0f32 - sec_).log() * -2.0f32).sqrt();
         ret
     }
 
-    pub fn normal<S: Into<Shape>>(shape: S, mean: f64, std: f64) -> Self {
+    pub fn normal<S: Into<Shape>>(shape: S, mean: f32, std: f32) -> Self {
         Self::randn(shape) * std + mean
     }
 
@@ -143,21 +143,21 @@ impl<B: Backend> Tensor<B> {
         Self::rand(shape) * (high - low) + low
     }
 
-    pub fn uniform_range<S: Into<Shape>>(shape: S, low: f64, high: f64) -> Self {
+    pub fn uniform_range<S: Into<Shape>>(shape: S, low: f32, high: f32) -> Self {
         Self::rand(shape) * (high - low) + low
     }
 
     //def scaled_uniform(*shape, **kwargs) -> Tensor: return Tensor.uniform(*shape, **kwargs).mul(math.prod(shape)**-0.5)
     pub fn scaled_uniform<S: Into<Shape>>(shape: S) -> Self {
         let shape = shape.into();
-        Self::uniform(shape.clone()) * (shape.numel() as f64).powf(-0.5)
+        Self::uniform(shape.clone()) * (shape.numel() as f32).powf(-0.5)
     }
 
     pub fn glorot_uniform<S: Into<Shape>>(shape: S) -> Self {
         // Tensor.uniform(*shape, **kwargs).mul((6/(shape[0]+math.prod(shape[1:])))**0.5)
         let shape = shape.into();
         Self::uniform(shape.clone())
-            * (6.0 / (shape.dims[0] + shape.dims[1..].iter().product::<usize>()) as f64).powf(0.5)
+            * (6.0 / (shape.dims[0] + shape.dims[1..].iter().product::<usize>()) as f32).powf(0.5)
     }
 
     pub fn kaiming_uniform<S: Into<Shape>>(_shape: S) -> Self {
@@ -307,7 +307,7 @@ impl<B: Backend> Tensor<B> {
     }
 
     pub fn cos(&self) -> Self {
-        (-self + core::f64::consts::PI / 2.0).sin()
+        (-self + core::f32::consts::PI / 2.0).sin()
     }
 
     pub fn sqrt(&self) -> Self {
@@ -387,13 +387,13 @@ impl<B: Backend> Tensor<B> {
     pub fn _argmax(&self, axis: Option<isize>, keepdim: bool) -> Self {
         if axis.is_none() {
             let idx = (self._eq(&self.max_all()))
-                * Self::_arange(self.numel() - 1., -1., -1.).reshape(self.shape());
+                * Self::_arange(self.numel() as f32 - 1., -1., -1.).reshape(self.shape());
             return self.numel() - idx.max_all() - 1;
         }
         let mut axis = axis.unwrap();
         axis = axis + if axis < 0 { self.ndim() as isize } else { axis };
         let m = self._eq(&self.max_keepdim(axis));
-        let idx = m * Self::_arange(self.shape()[axis] as f64 - 1., -1., -1.).reshape(
+        let idx = m * Self::_arange(self.shape()[axis] as f32 - 1., -1., -1.).reshape(
             [
                 vec![self.shape()[axis]],
                 vec![1; self.ndim() - axis as usize - 1],
@@ -897,15 +897,15 @@ impl<B: Backend> Tensor<B> {
         self.inner = x.inner;
     }
 
-    pub fn arange(to: f64) -> Self {
+    pub fn arange(to: f32) -> Self {
         Self::_arange(0., to, 1.)
     }
 
-    pub fn _arange(start: f64, stop: f64, step: f64) -> Self {
+    pub fn _arange(start: f32, stop: f32, step: f32) -> Self {
         // if stop is None: stop, start = start, 0
         // return Tensor.full((math.ceil((stop-start)/step),), step, **kwargs).cumsum() + (start - step)
         let s = ((stop - start) / step).ceil().to_usize().unwrap();
-        Self::full([s], B::Dtype::from_f64(step).unwrap()).cumsum() + (start - step)
+        Self::full([s], B::Dtype::from_f32(step).unwrap()).cumsum() + (start - step)
     }
 
     pub fn full<S: Into<Shape>>(shape: S, const_: B::Dtype) -> Self {
@@ -944,7 +944,7 @@ impl<B: Backend> Tensor<B> {
     pub fn sparse_categorical_crossentropy(&self, y: &Self) -> Self {
         let loss_mark = y._ne(&y.full_like(B::Dtype::from_f32(-1.0).unwrap()));
         //y_counter = Tensor.arange(self.shape[-1], requires_grad=False, device=self.device).unsqueeze(0).expand(Y.numel(), self.shape[-1])
-        let mut y_counter = Self::arange(self.shape()[-1] as f64);
+        let mut y_counter = Self::arange(self.shape()[-1] as f32);
         y_counter = y_counter
             .unsqueeze(0)
             .expand([y.shape().numel(), self.shape()[-1]]);
@@ -973,9 +973,9 @@ impl<B: Backend> Tensor<B> {
         (-1f32 / num_example) * entrophy
     }
 
-    pub fn clip(&self, min: f64, max: f64) -> Self {
-        self.maximum(&Tensor::from([B::Dtype::from_f64(min).unwrap()]))
-            .minimum(&Tensor::from([B::Dtype::from_f64(max).unwrap()]))
+    pub fn clip(&self, min: f32, max: f32) -> Self {
+        self.maximum(&Tensor::from([B::Dtype::from_f32(min).unwrap()]))
+            .minimum(&Tensor::from([B::Dtype::from_f32(max).unwrap()]))
     }
 
     pub fn maximum(&self, x: &Self) -> Self {
@@ -1060,8 +1060,8 @@ impl<B: Backend> Tensor<B> {
     //   return out * (math.prod(out.shape)/math.prod(self.shape))
     pub fn mean(&self) -> Self {
         let out = self.sum_all();
-        let o_numel = out.shape().numel() as f64;
-        out * (o_numel / self.shape().numel() as f64)
+        let o_numel = out.shape().numel();
+        out * o_numel / self.shape().numel()
     }
 
     // def abs(self): return self.relu() + (-self).relu()
@@ -1069,8 +1069,8 @@ impl<B: Backend> Tensor<B> {
         self.relu() + (-self).relu()
     }
 
-    pub fn numel(&self) -> f64 {
-        self.shape().numel() as f64
+    pub fn numel(&self) -> usize {
+        self.shape().numel()
     }
 
     pub fn detach(&self) -> Self {
