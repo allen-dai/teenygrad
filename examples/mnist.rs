@@ -3,12 +3,12 @@ use rand::{seq::SliceRandom, thread_rng};
 use teenygrad::prelude::*;
 
 pub fn main() {
-    let training = false;
-    let path = "./mnist.safetensors";
+    let training = true;
+    let path = "./models/mnist.safetensors";
     let mut model = ConvNet::<Cpu>::default();
     if training {
         let optim = adam(&[&mut model.c1, &mut model.c2, &mut model.l1], 0.001);
-        model.load(path).unwrap();
+        model.load(path);
         train(&model, optim, 128, 20).unwrap();
         model.save(path).unwrap();
     } else {
@@ -56,9 +56,9 @@ impl<B: Backend> ConvNet<B> {
     }
 
     fn load(&mut self, path: &str) -> Result<(), safetensors::SafeTensorError> {
-        self.c1.from_safetensor("c1", path)?;
-        self.c2.from_safetensor("c2", path)?;
-        self.l1.from_safetensor("l1", path)?;
+        self.c1.from_file("c1", path)?;
+        self.c2.from_file("c2", path)?;
+        self.l1.from_file("l1", path)?;
         Ok(())
     }
 }

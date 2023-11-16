@@ -7,43 +7,27 @@ pub fn main() {
     let mut generator = LinearGen::<Cpu>::default();
     let mut discriminator = LinearDisc::<Cpu>::default();
     if generator
-        .load("./weights/mnistgan_gen.safetensors")
+        .load("./models/mnistgan_gen.safetensors")
         .is_err()
     {
         println!("couldn't find generator safetensor, ignoring...")
     }
     if training {
-        let mut rng = thread_rng();
         if discriminator
-            .load("./weights/mnistgan_disc.safetensors")
+            .load("./models/mnistgan_disc.safetensors")
             .is_err()
         {
             println!("couldn't find discriminator safetensor, ignoring...")
         };
-        let out_noise = Tensor::<Cpu>::randn([16, 128]);
-        let (epochs, batch_size, k) = (100, 300, 1);
-        let n_steps = 100;
+        let out_noise = Tensor::randn([16, 128]);
+        let (epochs, batch_size, k) = (100, 20, 1);
+        let n_steps = 1;
         let (train_img, _, _, _) = fetch_mnist_shuffled::<Cpu>(batch_size);
-        let num_batch = train_img.len();
-        let mut gen_optim = teenygrad::nn::optim::adam_with(
-            &[
-                &mut generator.l1,
-                &mut generator.l2,
-                &mut generator.l3,
-                &mut generator.l4,
-            ],
-            &[0.0002, 0.5],
-        );
+        let mut gen_optim =
+            teenygrad::nn::optim::adam_with(&[&mut generator.l1, &mut generator.l2], &[0.001, 0.5]);
 
-        let mut disc_optim = teenygrad::nn::optim::adam_with(
-            &[
-                &mut discriminator.l1,
-                &mut discriminator.l2,
-                &mut discriminator.l3,
-                &mut discriminator.l4,
-            ],
-            &[0.0002, 0.5],
-        );
+        let mut disc_optim =
+            teenygrad::nn::optim::adam_with(&[&mut discriminator.l1, &mut discriminator.l2], &[0.001, 0.5]);
 
         let mut pb = tqdm!(total = epochs);
         pb.set_description(format!(
@@ -54,16 +38,15 @@ pub fn main() {
         for epoch in 0..epochs {
             let (mut loss_g, mut loss_d) = (0f32, 0f32);
             for _ in 0..n_steps {
-                let real_data = Tensor::<Cpu>::from(train_img[rng.gen_range(0..num_batch)].clone())
+                let real_data = Tensor::<Cpu>::from(train_img[0].clone())
                     .reshape([batch_size, 28 * 28])
-                    / (255.0 / 2.0)
-                    - 1.0;
+                    / 255.0 / 2.0 - 1.0;
                 for _ in 0..k {
                     // Train Discriminator
-                    let noise = Tensor::<Cpu>::randn([batch_size, 128]);
+                    let noise = Tensor::randn([batch_size, 128]);
                     let fake_data = generator.forward(&noise).detach();
-                    let real_labels = make_labels::<Cpu>(batch_size, 1);
-                    let fake_labels = make_labels::<Cpu>(batch_size, 0);
+                    let real_labels = make_labels(batch_size, 1);
+                    let fake_labels = make_labels(batch_size, 0);
                     disc_optim.zero_grad();
                     let output_real = discriminator.forward(&real_data);
                     let output_fake = discriminator.forward(&fake_data);
@@ -86,11 +69,14 @@ pub fn main() {
                 loss_g = loss_g + loss.to_vec()[0];
             }
 
-            let mut fake_images = (generator.forward(&out_noise).detach() + 1f32) / 2f32;
+            let mut fake_images:Tensor<_> = (generator.forward(&out_noise).detach() + 1.) / 2;
             fake_images = fake_images * 255.0;
             // Just reshaping into a 4*28 by 4*28 in a contigous array. so image can save it in
             // that shape without distortion.
-            fake_images = fake_images.reshape([4,4,28,28]).permute([0,1,3,2]).reshape([4, 4*28, 28]).transpose(1, 2);
+            fake_images = fake_images
+                .reshape([4, 4, 28, 28])
+                .reshape([4, 4 * 28, 28])
+                .transpose(1, 2);
             let data = fake_images
                 .to_vec()
                 .iter()
@@ -99,8 +85,8 @@ pub fn main() {
             image::save_buffer_with_format(
                 &std::path::Path::new(&format!("./images/image-{epoch}.jpg")),
                 &data,
-                (4*28) as u32,
-                (4*28) as u32,
+                (4 * 28) as u32,
+                (4 * 28) as u32,
                 image::ColorType::L8,
                 image::ImageFormat::Jpeg,
             )
@@ -112,12 +98,12 @@ pub fn main() {
                 loss_d / batch_size as f32
             ));
             pb.update(1).unwrap();
-            if (epoch + 1) % 20 == 0 {
+            if (epoch + 1) % 20 == 0 || n_steps > 5 {
                 generator
-                    .save("./weights/mnistgan_gen.safetensors")
+                    .save("./models/mnistgan_gen.safetensors")
                     .unwrap();
                 discriminator
-                    .save("./weights/mnistgan_disc.safetensors")
+                    .save("./models/mnistgan_disc.safetensors")
                     .unwrap();
             }
         }
@@ -127,17 +113,17 @@ pub fn main() {
 pub struct LinearGen<B: Backend> {
     pub l1: Tensor<B>,
     pub l2: Tensor<B>,
-    pub l3: Tensor<B>,
-    pub l4: Tensor<B>,
+    //pub l3: Tensor<B>,
+    //pub l4: Tensor<B>,
 }
 
 impl<B: Backend> Default for LinearGen<B> {
     fn default() -> Self {
         Self {
             l1: Tensor::scaled_uniform([128, 256]),
-            l2: Tensor::scaled_uniform([256, 512]),
-            l3: Tensor::scaled_uniform([512, 1024]),
-            l4: Tensor::scaled_uniform([1024, 784]),
+            l2: Tensor::scaled_uniform([256, 784]),
+            //l3: Tensor::scaled_uniform([512, 1024]),
+            //l4: Tensor::scaled_uniform([1024, 784]),
         }
     }
 }
@@ -145,9 +131,7 @@ impl<B: Backend> Default for LinearGen<B> {
 impl<B: Backend> LinearGen<B> {
     fn forward(&self, x: &Tensor<B>) -> Tensor<B> {
         let mut x = x.matmul(&self.l1).leakyrelu(Some(0.2));
-        x = x.matmul(&self.l2).leakyrelu(Some(0.2));
-        x = x.matmul(&self.l3).leakyrelu(Some(0.2));
-        x = x.matmul(&self.l4).tanh();
+        x = x.matmul(&self.l2).tanh();
         x
     }
 
@@ -156,8 +140,8 @@ impl<B: Backend> LinearGen<B> {
             &[
                 ("l1", &self.l1),
                 ("l2", &self.l2),
-                ("l3", &self.l3),
-                ("l4", &self.l4),
+                // ("l3", &self.l3),
+                // ("l4", &self.l4),
             ],
             path,
         )?;
@@ -165,10 +149,10 @@ impl<B: Backend> LinearGen<B> {
     }
 
     fn load(&mut self, path: &str) -> Result<(), safetensors::SafeTensorError> {
-        self.l1.from_safetensor("l1", path)?;
-        self.l2.from_safetensor("l2", path)?;
-        self.l3.from_safetensor("l3", path)?;
-        self.l4.from_safetensor("l4", path)?;
+        self.l1.from_file("l1", path)?;
+        self.l2.from_file("l2", path)?;
+        // self.l3.from_safetensor("l3", path)?;
+        // self.l4.from_safetensor("l4", path)?;
         Ok(())
     }
 }
@@ -176,50 +160,32 @@ impl<B: Backend> LinearGen<B> {
 pub struct LinearDisc<B: Backend> {
     pub l1: Tensor<B>,
     pub l2: Tensor<B>,
-    pub l3: Tensor<B>,
-    pub l4: Tensor<B>,
 }
 
 impl<B: Backend> Default for LinearDisc<B> {
     fn default() -> Self {
         Self {
-            l1: Tensor::scaled_uniform([784, 1024]),
-            l2: Tensor::scaled_uniform([1024, 512]),
-            l3: Tensor::scaled_uniform([512, 256]),
-            l4: Tensor::scaled_uniform([256, 2]),
+            l1: Tensor::scaled_uniform([784, 256]),
+            l2: Tensor::scaled_uniform([256, 2]),
         }
     }
 }
 
 impl<B: Backend> LinearDisc<B> {
     fn forward(&self, x: &Tensor<B>) -> Tensor<B> {
-        let mut x = (x.matmul(&self.l1) + 1.0f32)
-            .leakyrelu(Some(0.2))
-            .dropout(Some(0.3));
-        x = x.matmul(&self.l2).leakyrelu(Some(0.2)).dropout(Some(0.3));
-        x = x.matmul(&self.l3).leakyrelu(Some(0.2)).dropout(Some(0.3));
-        x = x.matmul(&self.l4).log_softmax();
+        let mut x = x.matmul(&self.l1).leakyrelu(Some(0.2)).dropout(Some(0.3));
+        x = x.matmul(&self.l2).log_softmax();
         x
     }
 
     fn save(&self, path: &str) -> Result<(), safetensors::SafeTensorError> {
-        Tensor::to_safetensor(
-            &[
-                ("l1", &self.l1),
-                ("l2", &self.l2),
-                ("l3", &self.l3),
-                ("l4", &self.l4),
-            ],
-            path,
-        )?;
+        Tensor::to_safetensor(&[("l1", &self.l1), ("l2", &self.l2)], path)?;
         Ok(())
     }
 
     fn load(&mut self, path: &str) -> Result<(), safetensors::SafeTensorError> {
-        self.l1.from_safetensor("l1", path)?;
-        self.l2.from_safetensor("l2", path)?;
-        self.l3.from_safetensor("l3", path)?;
-        self.l4.from_safetensor("l4", path)?;
+        self.l1.from_file("l1", path)?;
+        self.l2.from_file("l2", path)?;
         Ok(())
     }
 }
@@ -287,7 +253,7 @@ fn fetch_mnist_shuffled<B: Backend>(
 }
 
 fn make_labels<B: Backend>(bs: usize, col: usize) -> Tensor<B> {
-    let val = -2.0f64;
+    let val = -2.0f32;
     let ret = if col == 1 {
         Tensor::<B>::_arange(val - val, val + val, val).reshape([1, 2])
     } else {
