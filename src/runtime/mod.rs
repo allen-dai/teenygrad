@@ -5,6 +5,7 @@ use std::{
 
 use crate::{backend::cpu::Cpu, dtype};
 
+#[cfg(feature = "opencl")]
 pub mod opencl;
 
 pub trait Runtime {}
